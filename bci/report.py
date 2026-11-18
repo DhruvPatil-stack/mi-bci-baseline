@@ -11,15 +11,15 @@ from bci.contracts import BASELINE_MODEL, SYNTHETIC_LABEL, validate_results
 
 
 def compute_stats(results):
-    """Paired within-subject Wilcoxon tests on every available subject block."""
+    """Paired within-subject Wilcoxon tests for completed models only."""
     models = results["models"]
     base = models.get(BASELINE_MODEL)
-    if base is None or "within_subject" not in base:
+    if base is None or base.get("status", "ok") != "ok":
         return {"comparisons": [], "test": "wilcoxon signed-rank, within-subject per-subject bal_acc, Holm"}
     baseline = base["within_subject"]["per_subject"]
     comps = []
     for name, block in models.items():
-        if name == BASELINE_MODEL or "within_subject" not in block:
+        if name == BASELINE_MODEL or block.get("status", "ok") != "ok":
             continue
         other = block["within_subject"]["per_subject"]
         ids = sorted(set(baseline) & set(other), key=int)
@@ -28,9 +28,7 @@ def compute_stats(results):
         differences = np.array([other[s]["bal_acc"] - baseline[s]["bal_acc"] for s in ids])
         p_raw = 1.0 if np.all(differences == 0) else float(wilcoxon(differences).pvalue)
         comps.append({"model": name, "vs": BASELINE_MODEL,
-                      "median_diff": float(np.median(differences)), "p_raw": p_raw,
-                      "n_subjects": len(ids),
-                      "partial": (base.get("status", "ok") != "ok" or block.get("status", "ok") != "ok")})
+                      "median_diff": float(np.median(differences)), "p_raw": p_raw})
     order = sorted(range(len(comps)), key=lambda i: comps[i]["p_raw"])
     adjusted = 0.0
     for rank, i in enumerate(order):
@@ -103,13 +101,13 @@ def write_report(results_path, out_dir):
     out.mkdir(parents=True, exist_ok=True)
     results = json.loads(source.read_text(encoding="utf-8"))
     validate_results({**results, "stats": results.get("stats", {"comparisons": []})})
-    results["stats"] = compute_stats(results)
+    if "stats" not in results:
+        results["stats"] = compute_stats(results)
+        validate_results(results)
+        source.write_text(json.dumps(results, indent=2), encoding="utf-8")
     subjects = results["meta"]["subjects"]
     n_trials = results["meta"].get("n_trials")
-    if n_trials is not None and subjects:
-        results["meta"]["mean_trials_per_subject"] = n_trials / len(subjects)
     validate_results(results)
-    source.write_text(json.dumps(results, indent=2), encoding="utf-8")
 
     def metric_cell(block, section, count_key):
         part = block.get(section)
@@ -157,24 +155,20 @@ def write_report(results_path, out_dir):
     lines += ["", "## Paired comparisons", "",
               "Wilcoxon signed-rank on matched within-subject balanced accuracies; "
               "median difference is model minus csp_lda. Holm step-down adjusts p-values "
-              f"across the {len(results['stats']['comparisons'])} available comparisons. "
-              "A partial label means at least one model did not finish all evaluation steps.", "",
-              "| Model | Shared subjects | Median difference | Raw p | Holm p |", "|---|---:|---:|---:|---:|"]
+              f"across the {len(results['stats']['comparisons'])} completed-model comparisons.", "",
+              "| Model | Median difference | Raw p | Holm p |", "|---|---:|---:|---:|"]
     for comp in results["stats"]["comparisons"]:
-        label = comp["model"] + (" (partial)" if comp["partial"] else "")
-        lines.append(f"| {label} | {comp['n_subjects']} | {comp['median_diff']:.4f} | "
+        lines.append(f"| {comp['model']} | {comp['median_diff']:.4f} | "
                      f"{p_text(comp['p_raw'])} | {p_text(comp['p_holm'])} |")
     if not results["stats"]["comparisons"]:
-        lines += ["", "No paired comparison is available because the baseline or other models "
-                  "lack a shared within-subject results block."]
+        lines += ["", "No paired comparison is available because no completed model can be "
+                  "compared with a completed csp_lda baseline; timed-out and errored models "
+                  "remain visible in the measurements above."]
     n_subjects = len(subjects)
     if n_trials is None:
         cohort = f"The results metadata lists {n_subjects} subjects; trial count is unavailable."
     else:
-        average = results["meta"]["mean_trials_per_subject"]
-        average_text = str(int(average)) if float(average).is_integer() else f"{average:.4f}"
-        cohort = (f"The results metadata lists {n_subjects} subjects and {n_trials} total trials, "
-                  f"or {average_text} trials per subject on average (total trials / subjects).")
+        cohort = f"The results metadata lists {n_subjects} subjects and {n_trials} total trials."
     if results["meta"]["data_source"] == "physionet":
         cohort += " The subjects are healthy volunteers."
     else:
