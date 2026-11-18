@@ -44,6 +44,7 @@ Fits per model: 20 + 4 x 20 x 3 = 260 source + target, 240 target-only.
 
 ## Measured calibration-only run (3 repeats, csp_lda and ts_lr in parallel)
 csp_lda: status ok, 4254.4 s. ts_lr: status ok, 5524.4 s (.sync/run_calib.log). Both took longer than the
-single-process estimates above (about 2075 s and 1982 s); the two workers ran at the same time. fbcsp_lr was not
-run. Within, cross and permutation blocks in results.json are unchanged (checked against the pre-run backup).
+single-process estimates above (about 2075 s and 1982 s). The two workers ran at the same time; the cause of the
+overrun was not measured. fbcsp_lr was not run; with estimates running low by this much, the about 160 min
+estimate for fbcsp_lr (already above 60 min) supports that decision more strongly. Within, cross and permutation blocks in results.json are unchanged (checked against the pre-run backup).
 Results and intervals: docs/CALIBRATION.md.

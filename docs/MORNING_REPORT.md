@@ -21,3 +21,9 @@ Runtime_s: 2405.9, 2415.0, 2413.8, 2422.7. No paired stats (compute_stats skips 
 3. Probe the synthetic data against a reference model before locking thresholds (within-subject CSP recovery proved impossible at 64 ch / 32 trials).
 4. Test YAML types: `1.0e6` loads as a string; only an end-to-end offline data test caught it.
 5. Check the other agent's sandbox permissions (git index.lock, temp dirs) in Phase 0, not at the end.
+**Addendum 2026-11-18, calibration experiment (human-approved config: calibration_repeats 10->3, calibration budget 120 min, integration only; details docs/CALIBRATION.md, docs/DECISIONS.md):**
+- csp_lda and ts_lr calibration-only run: both status ok, all k 0-24 (4254.4 s, 5524.4 s). fbcsp_lr not run (estimate about 160 min). Within/cross/permutation numbers unchanged.
+- (a) source_plus_target beats k=0: ts_lr at k=4, +0.0258 [0.0032, 0.0520]; csp_lda never (all intervals include 0).
+- (b) target_only beats k=0 zero-shot: no crossover for either model up to k=24.
+- Gates now: G5 PASS (9 passed). G6 FAIL: two synthetic runs hit the 40 min wall-clock budget at different blocks (run 0 slower; cause not measured); blocks present in both runs are identical. G0 FAIL: bci/config.yaml, docs/CALIBRATION.md, docs/DECISIONS.md are outside the integration file set (approved change; check not edited).
+- So the "main question NOT answered" line above is superseded for csp_lda and ts_lr.

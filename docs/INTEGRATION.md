@@ -43,3 +43,12 @@ run_all.py (one worker process per model, 2 BLAS threads each), README.md, resul
    f48cd31 and the ticket returned to Codex (return 1 of 2). Round 2 (32dad8a) passed: G0 + G4 + G5 +
    tests/codex 19 passed; re-rendering left results.json byte-identical. Both rounds were committed by the
    lead because the Codex sandbox still cannot write .git/worktrees/codex/index.lock.
+
+6. Calibration experiment (2026-11-18, human-approved config change on this branch only; docs/DECISIONS.md,
+   docs/CALIBRATION.md). Gates after it (the table above is the state before it):
+   - G0 FAIL: `branch integration/v0.2 changed files it does not own: ['bci/config.yaml', 'docs/CALIBRATION.md', 'docs/DECISIONS.md']`. Check not edited.
+   - G5 PASS: `test_report_numbers.py` 9 passed (BCI_EXPECT_REAL=1).
+   - G6 FAIL: `AssertionError: two seeded runs gave different results.json` (1 failed, 14113.37 s). Run 0 hit the
+     40 min budget earlier in every model (csp_lda during permutation vs ok; ts_lr permutation vs calibration;
+     fbcsp_lr cross_subject vs permutation; eegnet_lite within_subject vs cross_subject). Blocks present in both
+     runs are identical. Why run 0 was slower was not measured.
