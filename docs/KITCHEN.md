@@ -59,3 +59,6 @@ LIMITS
 - Compact the context at 40%.
 - Use AGENTS.md for Codex and CLAUDE.md for Claude.
   Keep one file and link the other name to it.
+
+LESSONS
+- v0.2: Before freezing a time budget, multiply the fit count by a measured fit time. A frozen 40 min budget against 820 calibration fits made every model time out, and the gates that skip non-ok results then passed with nothing checked.
