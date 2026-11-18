@@ -17,7 +17,8 @@ std_ddof: 1                        # std over subjects / folds uses ddof=1
 n_permutations: 5                  # permutation_control repeats per model; the reported value is the mean
 n_permutations_eegnet: 1           # compute limit for eegnet_lite only
 calibration_k: [0, 4, 8, 16, 24]
-calibration_repeats: 10            # k = 0 has one draw only (no randomness)
+calibration_repeats: 3             # k = 0 has one draw only (no randomness). Human-approved change 10 -> 3 on integration/v0.2 only
+calibration_time_budget_min: 120   # calibration-only stage budget per model (run_all.py --calibration-only). Human-approved, integration/v0.2 only
 calibration_models: [csp_lda, fbcsp_lr, ts_lr]
 
 # --- classical models (Claude) ---

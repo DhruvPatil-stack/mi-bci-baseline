@@ -1,4 +1,4 @@
-"""Integration entry point (PRD section 10). Owner: integration.
+﻿"""Integration entry point (PRD section 10). Owner: integration.
 
     python run_all.py [--synthetic] [--out DIR]
 
@@ -84,6 +84,115 @@ def evaluate_all(X, y, groups, names, calibration_models):
     return out
 
 
+N_BOOT = 10000
+
+
+def _boot_ci(values, rng):
+    """Percentile 95% CI of the mean over subjects (resample subjects with replacement)."""
+    v = np.asarray(values, dtype=float)
+    idx = rng.integers(0, len(v), size=(N_BOOT, len(v)))
+    means = v[idx].mean(axis=1)
+    return [float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))]
+
+
+def add_bootstrap(cal: dict) -> dict:
+    """Add bootstrap 95% CIs across subjects to a calibration block that has per_target.
+
+    ci95_source_plus_target[i], ci95_target_only[i]: CI of the curve mean at k[i].
+    vs_zero_shot: per k, paired per-subject differences against the k=0 source-only score of the same subject
+    (mean difference and its CI). A curve "beats" zero-shot at k when the CI lower bound is above 0.
+    Seeded with SEED; one generator per (k, curve) so the result does not depend on how many k finished.
+    """
+    from bci.contracts import SEED
+
+    per = cal.get("per_target")
+    if not per or cal["k"][0] != 0:
+        return cal
+    zero = {t: v["source_plus_target"] for t, v in per[0].items()}
+    ci_spt, ci_to, vs = [], [], []
+    for i, (k, row) in enumerate(zip(cal["k"], per)):
+        ts = sorted(row, key=int)
+        spt = [row[t]["source_plus_target"] for t in ts]
+        ci_spt.append(_boot_ci(spt, np.random.default_rng([SEED, int(k), 0])))
+        entry = {"k": int(k), "n_subjects": len(ts)}
+        d_spt = [row[t]["source_plus_target"] - zero[t] for t in ts]
+        entry["source_plus_target_minus_k0"] = float(np.mean(d_spt))
+        entry["ci95_source_plus_target_minus_k0"] = _boot_ci(d_spt, np.random.default_rng([SEED, int(k), 2]))
+        if k == 0:
+            ci_to.append(None)
+        else:
+            to = [row[t]["target_only"] for t in ts]
+            ci_to.append(_boot_ci(to, np.random.default_rng([SEED, int(k), 1])))
+            d_to = [row[t]["target_only"] - zero[t] for t in ts]
+            entry["target_only_minus_k0"] = float(np.mean(d_to))
+            entry["ci95_target_only_minus_k0"] = _boot_ci(d_to, np.random.default_rng([SEED, int(k), 3]))
+        vs.append(entry)
+    cal["ci95_source_plus_target"] = ci_spt
+    cal["ci95_target_only"] = ci_to
+    cal["vs_zero_shot"] = vs
+    cal["bootstrap"] = {"n_boot": N_BOOT, "unit": "subject", "interval": "percentile 95%", "seed": SEED}
+    return cal
+
+
+def calibration_only(models_wanted, out_dir: Path):
+    """Run only the calibration stage on PhysioNet and merge it into an existing results.json.
+
+    Old numbers are kept: the previous calibration block moves to "calibration_v1" (with its partial flag).
+    Uses config calibration_time_budget_min per model (worker process per model).
+    """
+    from bci import report
+    from bci.contracts import g4_check, load_config, validate_results
+
+    cfg = load_config()
+    rpath = out_dir / "results.json"
+    res = json.loads(rpath.read_text(encoding="utf-8"))
+    if res["meta"]["data_source"] != "physionet":
+        raise SystemExit("calibration-only mode needs physionet results.json")
+    X, y, groups, source = load(False)
+    if source != "physionet":
+        raise SystemExit("PhysioNet download failed; calibration-only mode refuses synthetic data")
+    budget = float(cfg["calibration_time_budget_min"])
+    jobs = [(n, X, y, groups, budget) for n in models_wanted]
+    with ProcessPoolExecutor(max_workers=len(jobs)) as pool:
+        outs = list(pool.map(_calib_worker, jobs))
+    for name, out in outs:
+        block = res["models"][name]
+        if "calibration" in block:
+            v1 = block.pop("calibration")
+            v1["partial"] = bool(block.pop("calibration_partial", False))
+            v1["calibration_repeats"] = 10
+            block["calibration_v1"] = v1
+        if "calibration" in out:
+            block["calibration"] = add_bootstrap(out["calibration"])
+        block["calibration_partial"] = out["calibration_partial"]
+        block["calibration_status"] = out["status"]
+        block["calibration_runtime_s"] = out["runtime_s"]
+        if out.get("error"):
+            block["calibration_error"] = out["error"]
+        print(f"[run_all] calibration {name}: {out['status']} in {out['runtime_s']:.1f} s", flush=True)
+    res["meta"]["calibration_run"] = {
+        "git_commit": _git_commit(), "timestamp": _dt.datetime.now().isoformat(timespec="seconds"),
+        "calibration_repeats": int(cfg["calibration_repeats"]), "calibration_time_budget_min": budget,
+        "models": list(models_wanted)}
+    validate_results(res)
+    rpath.write_text(json.dumps(res, indent=2), encoding="utf-8")
+    report.write_report(str(rpath), str(out_dir))
+    fails, warns = g4_check(res)
+    fb = {"png": "feedback.png", "subject": int(res["meta"]["subjects"][0])}
+    write_readme(out_dir / "README.md", res, fails, warns, fb)
+    if out_dir == (REPO / "results").resolve():
+        write_readme(REPO / "README.md", res, fails, warns, fb)
+    return 0
+
+
+def _calib_worker(args):
+    name, X, y, groups, budget = args
+    _set_env()
+    from bci import evaluate
+
+    return name, evaluate.run_calibration(name, X, y, groups, budget)
+
+
 def feedback(X, y, groups, out_dir: Path, source: str):
     """Fit the config feedback model on all subjects but the first and replay one trial of the first."""
     from bci.contracts import SFREQ, load_config
@@ -156,9 +265,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--synthetic", action="store_true")
     ap.add_argument("--out", default=str(REPO / "results"))
+    ap.add_argument("--calibration-only", nargs="+", metavar="MODEL",
+                    help="run only the calibration stage for these models and merge into OUT/results.json")
     args = ap.parse_args(argv)
     out_dir = Path(args.out).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    if args.calibration_only:
+        return calibration_only(args.calibration_only, out_dir)
 
     from bci.contracts import SEED, SYNTHETIC_LABEL, g4_check, load_config, validate_results
     from bci.evaluate import _registry
@@ -172,6 +285,9 @@ def main(argv=None):
     names = [n for n in MODEL_ORDER if n in reg] + sorted(n for n in reg if n not in MODEL_ORDER)
     models = evaluate_all(X, y, groups, names, set(cfg["calibration_models"]))
 
+    for b in models.values():
+        if "calibration" in b:
+            add_bootstrap(b["calibration"])
     runtime = {n: float(b.pop("runtime_s", 0.0)) for n, b in models.items()}
     res = {
         "meta": {"data_source": source, "seed": SEED, "subjects": [int(s) for s in np.unique(groups)],
