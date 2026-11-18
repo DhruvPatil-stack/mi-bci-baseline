@@ -19,7 +19,7 @@ from bci.splits import cross_subject_splits
 from conftest import all_registries, optional_module
 
 N_PERM = 5  # permutation repeats: 5 x 320 test trials -> chance-level sd about 0.0125
-RECOVERY = {"csp_lda": 0.85, "ts_lr": 0.85}
+RECOVERY = {"csp_lda": 0.85, "ts_lr": 0.85, "fbcsp_lr": 0.80}  # fbcsp_lr: Head-chef probe measured 0.863
 EEGNET_MIN = 0.70
 
 

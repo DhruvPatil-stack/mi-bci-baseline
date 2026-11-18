@@ -1,4 +1,4 @@
-"""FROZEN contracts (PRD section 7). Head chef, Phase 0. No cook edits this file.
+﻿"""FROZEN contracts (PRD section 7). Head chef, Phase 0. No cook edits this file.
 
 DATA CONTRACT
     X       np.ndarray, shape (n_trials, 64, 480), dtype float32, unit microvolt (uV).
@@ -6,10 +6,14 @@ DATA CONTRACT
     groups  np.ndarray, shape (n_trials,), integer subject id.
 
     bci.data must expose:
+        epochs_from_raw(raw) -> (X, y)   # one mne Raw in VOLTS with T0/T1/T2 annotations -> uV epochs.
+            Applies config reference (average), config filter_band to the continuous raw, keeps T1/T2 by
+            annotation DESCRIPTION (not by event code), window config tmin..tmax (480 samples), x unit_scale.
+            Must not depend on channel names or a montage (gate G1 feeds a RawArray named EEG000..EEG063).
         load_dataset(subjects, runs) -> (X, y, groups)                         # PhysioNet only, raises on failure
         load_with_fallback(subjects, runs) -> (X, y, groups, source)          # source in DATA_SOURCES
-            tries the download config["download_attempts"] times, then returns synthetic.make_synthetic() data
-            with source == "synthetic".
+            calls the module-level load_dataset up to config["download_attempts"] times, then returns
+            synthetic.make_synthetic() data with source == "synthetic".
 
 ESTIMATOR CONTRACT
     Each model is a scikit-learn estimator (sklearn.base.clone works) with fit(X, y), predict(X) -> (n,) in {0, 1},
@@ -34,8 +38,10 @@ EVALUATOR CONTRACT (bci.evaluate, Claude)
     mean_* is the plain mean, std_* uses ddof = config["std_ddof"].
 
 REPORT CONTRACT (bci.report, Codex)
-    compute_stats(results) -> STATS block (Wilcoxon signed-rank on per-subject within bal_acc, each model vs
-                              csp_lda, Holm correction, median of paired differences model - csp_lda)
+    compute_stats(results) -> STATS block: for each model with status ok other than csp_lda,
+                              scipy.stats.wilcoxon(model, csp_lda) with scipy defaults on per-subject within bal_acc
+                              (common subjects, ascending id); p_raw = 1.0 when all differences are 0;
+                              median_diff = median(model - csp_lda); Holm step-down over all comparisons.
     write_report(results_path, out_dir) -> str path of results.md. If results has no "stats", it calls
                               compute_stats and writes the block back into results_path first.
                               Writes results.md, fig1_models.png, fig2_calibration.png, fig3_permutation.png.

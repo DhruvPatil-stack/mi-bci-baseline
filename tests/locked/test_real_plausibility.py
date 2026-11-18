@@ -1,4 +1,4 @@
-"""Gate G4 (FROZEN, physionet only): leak-suspect values fail; out-of-range values warn.
+﻿"""Gate G4 (FROZEN, physionet only): leak-suspect values fail; out-of-range values warn.
 
 Reads $BCI_RESULTS or results/results.json. Rule: bci.contracts.g4_check.
 The ranges are plausibility limits from general experience, not published values (PRD section 12 NOTE).
@@ -22,6 +22,8 @@ def _results():
     if not path.exists():
         pytest.skip(f"{path} not found")
     res = json.loads(path.read_text(encoding="utf-8"))
+    if os.environ.get("BCI_EXPECT_REAL") == "1":
+        assert res["meta"]["data_source"] == "physionet", "BCI_EXPECT_REAL=1 but results are synthetic (silent fallback)"
     if res["meta"]["data_source"] != "physionet":
         pytest.skip("G4 applies to physionet results only")
     return res

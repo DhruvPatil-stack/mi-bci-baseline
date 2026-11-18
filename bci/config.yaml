@@ -1,4 +1,4 @@
-# FROZEN (Head chef, Phase 0). All settings come from this file. No hyperparameter search.
+﻿# FROZEN (Head chef, Phase 0). All settings come from this file. No hyperparameter search.
 
 # --- data (PRD section 5) ---
 subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
@@ -7,7 +7,7 @@ event_map: {T1: 0, T2: 1}          # T1 = left fist (0), T2 = right fist (1). T0
 reference: average                 # common average reference
 filter_band: [1.0, 40.0]           # Hz. data.py band-passes the CONTINUOUS raw once (no label use, no fit).
 window: {tmin: 0.5, tmax: 3.49375} # s after cue. tmax = 3.5 - 1/160 -> 480 samples (MNE includes the end point).
-unit_scale: 1.0e6                  # volts -> microvolts
+unit_scale: 1000000.0              # volts -> microvolts (float; YAML reads 1.0e6 as a string)
 download_attempts: 3               # then fall back to synthetic.py and label SYNTHETIC - NOT VALID
 data_dir_env: BCI_DATA_DIR         # env var for the MNE data cache. Default: <repo>/.cache/mne_data (inside the repo, git-excluded)
 

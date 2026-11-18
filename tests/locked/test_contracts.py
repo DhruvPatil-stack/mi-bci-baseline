@@ -189,3 +189,88 @@ def test_feedback_runs(synth_small, tmp_path):
     assert len(times) == len(p) == 9
     assert np.all(np.diff(times) > 0) and times.max() <= N_SAMPLES / SFREQ
     assert np.all((p >= 0) & (p <= 1))
+
+
+# ------------------------------------------------------------------ data.py offline (no download)
+def _fake_physionet_raw():
+    """64-ch RawArray in VOLTS with T0/T1/T2 annotations and a known planted signal.
+
+    T1 (left, 0): 10 Hz, 50e-6 V burst on ch 0 exactly from cue+0.5 s to cue+3.5 s.
+    T2 (right, 1): the same burst on ch 1. T0 (rest): the same burst on ch 2 (must be dropped).
+    Common mode: 20 Hz, 100e-6 V on every channel all the time (the average reference must remove it).
+    """
+    import mne
+
+    sf = SFREQ
+    n_cyc = 9
+    onsets = [2.0 + 8.5 * i for i in range(n_cyc)]
+    descs = ["T0", "T1", "T2"] * (n_cyc // 3)
+    n = int((onsets[-1] + 6.0) * sf)
+    t = np.arange(n) / sf
+    rng = np.random.default_rng(0)
+    data = 1e-7 * rng.standard_normal((N_CHANNELS, n)) + 100e-6 * np.sin(2 * np.pi * 20 * t)
+    chan = {"T0": 2, "T1": 0, "T2": 1}
+    for on, d in zip(onsets, descs):
+        m = (t >= on + 0.5) & (t < on + 3.5)
+        data[chan[d], m] += 50e-6 * np.sin(2 * np.pi * 10 * t[m])
+    info = mne.create_info([f"EEG{i:03d}" for i in range(N_CHANNELS)], sf, "eeg")
+    raw = mne.io.RawArray(data, info, verbose="error")
+    raw.set_annotations(mne.Annotations(onsets, [4.1] * n_cyc, descs))
+    return raw
+
+
+def test_data_epochs_from_raw_offline():
+    """C1 checks without a download: label map, rest drop, uV unit, 480-sample window placement, average reference."""
+    data = optional_module("data")
+    if data is None:
+        pytest.skip("bci/data.py not on this branch")
+    X, y = data.epochs_from_raw(_fake_physionet_raw())
+    X, y = np.asarray(X), np.asarray(y)
+    assert X.shape == (6, N_CHANNELS, N_SAMPLES), f"shape {X.shape}: expected 3 T1 + 3 T2 trials, T0 dropped"
+    assert X.dtype == np.float32
+    assert y.tolist() == [0, 1, 0, 1, 0, 1], f"labels {y.tolist()}: T1 must be 0 (left), T2 must be 1 (right)"
+    rms = np.sqrt((X.astype(np.float64) ** 2).mean(-1))  # (trials, channels) in uV
+    burst = 50.0 * 63 / 64 / np.sqrt(2)  # rms of the planted burst after the average reference, uV
+    for i, lab in enumerate(y):
+        ch, other = (0, 1) if lab == 0 else (1, 0)
+        assert 0.75 * burst < rms[i, ch] < 1.25 * burst, f"trial {i}: burst rms {rms[i, ch]:.3g} uV, expected {burst:.3g}"
+        assert rms[i, other] < 3.0
+        assert rms[i, 2] < 3.0, "rest (T0) signal found in a kept trial"
+        assert rms[i, 5] < 3.0, f"common-mode 20 Hz survives (rms {rms[i, 5]:.3g} uV): average reference missing"
+        seg = X[i, ch].astype(np.float64)
+        mid = np.sqrt((seg[200:280] ** 2).mean())
+        assert np.sqrt((seg[:40] ** 2).mean()) > 0.6 * mid, "window starts before cue+0.5 s"
+        assert np.sqrt((seg[-40:] ** 2).mean()) > 0.6 * mid, "window ends after cue+3.5 s"
+
+
+def test_data_fallback_to_synthetic(monkeypatch):
+    data = optional_module("data")
+    if data is None:
+        pytest.skip("bci/data.py not on this branch")
+    calls = []
+
+    def broken(subjects, runs, *a, **k):
+        calls.append(1)
+        raise OSError("simulated download failure")
+
+    monkeypatch.setattr(data, "load_dataset", broken)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    X, y, groups, source = data.load_with_fallback([1, 2], [4, 8, 12])
+    assert source == "synthetic"
+    assert len(calls) == contracts.load_config()["download_attempts"]
+    _check_data_contract(X, y, groups)
+
+
+def test_feedback_direction(synth_small, tmp_path):
+    """Class-1 (right) trials give a higher mean P(right) than class-0 trials."""
+    fb = optional_module("feedback_sim")
+    mc = optional_module("models_classical")
+    if fb is None or mc is None:
+        pytest.skip("needs feedback_sim.py and models_classical.py")
+    X, y, groups = synth_small
+    est = mc.REGISTRY["csp_lda"]().fit(X[:160], y[:160])
+    means = {0: [], 1: []}
+    for i in range(160, 200):
+        _, p = fb.simulate_feedback(est, X[i], SFREQ, str(tmp_path / f"fb{i}.png"))
+        means[int(y[i])].append(float(np.mean(p)))
+    assert np.mean(means[1]) > np.mean(means[0]), "feedback P(right) is not higher for right-hand trials"

@@ -1,4 +1,4 @@
-"""Gate G2 (FROZEN): no subject or trial leaks between train and test.
+﻿"""Gate G2 (FROZEN): no subject or trial leaks between train and test.
 
 Part A checks splits.py directly. Part B wraps a spy estimator into the registry and runs evaluate.py:
 the spy reads the row id planted in X[:, 0, 0] and fails if any predicted row was in its fit set.
@@ -89,11 +89,14 @@ def test_splits_are_deterministic(synth):
 
 # ------------------------------------------------------------------ Part B: evaluate.py with a spy
 LOG: list = []
+REF = {}  # "X": the id-tagged X given to evaluate, "y": true labels, "groups"
 
 
 class Spy(BaseEstimator, ClassifierMixin):
     def fit(self, X, y):
         ids = np.asarray(X)[:, 0, 0].astype(np.int64)
+        if not np.array_equal(np.asarray(X, dtype=np.float32), REF["X"][ids]):
+            raise AssertionError("evaluate changed X before fit: all preprocessing must live inside the estimator")
         self.fit_ids_ = set(ids.tolist())
         LOG.append(("fit", ids, np.asarray(y).copy()))
         self.classes_ = np.array([0, 1])
@@ -101,6 +104,8 @@ class Spy(BaseEstimator, ClassifierMixin):
 
     def _check(self, X):
         ids = np.asarray(X)[:, 0, 0].astype(np.int64)
+        if not np.array_equal(np.asarray(X, dtype=np.float32), REF["X"][ids]):
+            raise AssertionError("evaluate changed X before predict: all preprocessing must live inside the estimator")
         overlap = self.fit_ids_ & set(ids.tolist())
         if overlap:
             raise AssertionError(f"LEAK: {len(overlap)} test rows were in the fit set, e.g. {sorted(overlap)[:5]}")
@@ -124,9 +129,12 @@ def spy_env(monkeypatch, synth_small):
     if ev is None or mc is None:
         pytest.skip("needs evaluate.py and models_classical.py")
     monkeypatch.setitem(mc.REGISTRY, "spy", Spy)
+    monkeypatch.setitem(mc.REGISTRY, "oracle", Oracle)
     LOG.clear()
     X, y, groups = synth_small
-    return ev, id_tagged(X), y, groups
+    Xt = id_tagged(X)
+    REF.update(X=Xt, y=np.asarray(y), groups=np.asarray(groups))
+    return ev, Xt, y, groups
 
 
 def _pairs():
@@ -188,3 +196,46 @@ def test_evaluate_calibration_no_leak(spy_env):
             n_target_in_fit = int(np.sum(groups[fit_ids] == target))
             assert n_target_in_fit in contracts.load_config()["calibration_k"], (
                 f"fit holds {n_target_in_fit} target trials, not a k value")
+
+
+class Oracle(Spy):
+    """Predicts the TRUE label of a row if its subject was in the fit set, else the WRONG label.
+
+    So a correct evaluator reports: within 1.0, cross 0.0, calibration source_plus_target 0.0 at k = 0 and
+    1.0 at k > 0, target_only 1.0 at k > 0. Any other value means the curves or folds use the wrong sets.
+    """
+
+    def fit(self, X, y):
+        super().fit(X, y)
+        self.fit_subjects_ = set(REF["groups"][sorted(self.fit_ids_)].tolist())
+        return self
+
+    def predict(self, X):
+        ids = self._check(X)
+        seen = np.isin(REF["groups"][ids], list(self.fit_subjects_))
+        true = REF["y"][ids]
+        return np.where(seen, true, 1 - true).astype(int)
+
+    def predict_proba(self, X):
+        p = self.predict(X).astype(float) * 0.8 + 0.1
+        return np.c_[1 - p, p]
+
+
+def test_oracle_within_and_cross(spy_env):
+    ev, X, y, groups = spy_env
+    w = ev.within_subject("oracle", X, y, groups)
+    assert np.isclose(w["mean_bal_acc"], 1.0), f"within oracle mean {w['mean_bal_acc']}"
+    c = ev.cross_subject("oracle", X, y, groups)
+    assert np.isclose(c["mean_bal_acc"], 0.0), f"cross oracle mean {c['mean_bal_acc']} (a test subject was in train?)"
+
+
+def test_oracle_calibration_curves(spy_env):
+    ev, X, y, groups = spy_env
+    cal = ev.calibration_curve("oracle", X, y, groups)
+    for k, spt, to in zip(cal["k"], cal["source_plus_target"], cal["target_only"]):
+        if k == 0:
+            assert np.isclose(spt, 0.0), f"k=0 source-only curve {spt}: target trials reached the fit"
+            assert to is None
+        else:
+            assert np.isclose(spt, 1.0), f"k={k} source_plus_target {spt}: calib trials missing from the fit"
+            assert np.isclose(to, 1.0), f"k={k} target_only {to}"
