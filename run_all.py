@@ -124,6 +124,18 @@ def write_readme(path: Path, res: dict, g4_fails, g4_warns, fb):
         extra = " (partial calibration curve)" if block.get("calibration_partial") else ""
         err = f": {block['error']}" if block.get("error") else ""
         lines.append(f"- `{name}`: {block.get('status', 'ok')}{extra}{err}")
+    lines += ["", "## Finished blocks (from results.json, including models that timed out)", "",
+              "Balanced accuracy. A model with status timeout keeps the blocks it finished before the budget ran out.",
+              "", "| Model | Status | Within mean (std) | Cross mean (std) | Permutation within / cross | Calibration k done |",
+              "|---|---|---|---|---|---|"]
+    for name, block in res["models"].items():
+        w, c, p, cal = (block.get(k) for k in ("within_subject", "cross_subject", "permutation", "calibration"))
+        lines.append(
+            f"| {name} | {block.get('status', 'ok')} "
+            f"| {f'{w['mean_bal_acc']:.4f} ({w['std_bal_acc']:.4f})' if w else 'not finished'} "
+            f"| {f'{c['mean_bal_acc']:.4f} ({c['std_bal_acc']:.4f})' if c else 'not finished'} "
+            f"| {f'{p['within_mean_bal_acc']:.4f} / {p['cross_mean_bal_acc']:.4f}' if p else 'not finished'} "
+            f"| {cal['k'] if cal else 'none'} |")
     lines += ["", "## Gate G4 (plausibility, physionet only)", ""]
     if res["meta"]["data_source"] != "physionet":
         lines.append("Not applicable: synthetic data.")
