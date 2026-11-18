@@ -1,0 +1,501 @@
+{
+  "meta": {
+    "data_source": "synthetic",
+    "seed": 42,
+    "subjects": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "git_commit": "fixture",
+    "timestamp": "2026-11-18T00:00:00",
+    "label": "FAKE FIXTURE - NOT A RESULT",
+    "note": "Fake values for testing report.py only. Not measured."
+  },
+  "models": {
+    "csp_lda": {
+      "within_subject": {
+        "per_subject": {
+          "1": {
+            "acc": 0.5994,
+            "bal_acc": 0.6009,
+            "kappa": 0.2018
+          },
+          "2": {
+            "acc": 0.7838,
+            "bal_acc": 0.783,
+            "kappa": 0.566
+          },
+          "3": {
+            "acc": 0.7559,
+            "bal_acc": 0.7536,
+            "kappa": 0.5072
+          },
+          "4": {
+            "acc": 0.6313,
+            "bal_acc": 0.6291,
+            "kappa": 0.2582
+          },
+          "5": {
+            "acc": 0.6534,
+            "bal_acc": 0.6547,
+            "kappa": 0.3094
+          },
+          "6": {
+            "acc": 0.6817,
+            "bal_acc": 0.6878,
+            "kappa": 0.3756
+          }
+        },
+        "mean_bal_acc": 0.6849,
+        "std_bal_acc": 0.0713
+      },
+      "cross_subject": {
+        "per_fold": [
+          {
+            "fold": 0,
+            "test_subjects": [
+              1,
+              4
+            ],
+            "acc": 0.6507,
+            "bal_acc": 0.6477,
+            "kappa": 0.2954
+          },
+          {
+            "fold": 1,
+            "test_subjects": [
+              2
+            ],
+            "acc": 0.5762,
+            "bal_acc": 0.5732,
+            "kappa": 0.1464
+          },
+          {
+            "fold": 2,
+            "test_subjects": [
+              3
+            ],
+            "acc": 0.643,
+            "bal_acc": 0.64,
+            "kappa": 0.28
+          },
+          {
+            "fold": 3,
+            "test_subjects": [
+              5
+            ],
+            "acc": 0.6085,
+            "bal_acc": 0.6055,
+            "kappa": 0.211
+          },
+          {
+            "fold": 4,
+            "test_subjects": [
+              6
+            ],
+            "acc": 0.6643,
+            "bal_acc": 0.6613,
+            "kappa": 0.3226
+          }
+        ],
+        "mean_bal_acc": 0.6255,
+        "std_bal_acc": 0.0358
+      },
+      "permutation": {
+        "within_mean_bal_acc": 0.4934,
+        "cross_mean_bal_acc": 0.4969
+      },
+      "status": "ok",
+      "calibration": {
+        "k": [
+          0,
+          4,
+          8,
+          16,
+          24
+        ],
+        "source_plus_target": [
+          0.6034,
+          0.5939,
+          0.6403,
+          0.6794,
+          0.7073
+        ],
+        "target_only": [
+          null,
+          0.5555,
+          0.5745,
+          0.6448,
+          0.6987
+        ]
+      }
+    },
+    "fbcsp_lr": {
+      "within_subject": {
+        "per_subject": {
+          "1": {
+            "acc": 0.7414,
+            "bal_acc": 0.7414,
+            "kappa": 0.4828
+          },
+          "2": {
+            "acc": 0.6762,
+            "bal_acc": 0.6811,
+            "kappa": 0.3622
+          },
+          "3": {
+            "acc": 0.7994,
+            "bal_acc": 0.8081,
+            "kappa": 0.6162
+          },
+          "4": {
+            "acc": 0.6811,
+            "bal_acc": 0.6804,
+            "kappa": 0.3608
+          },
+          "5": {
+            "acc": 0.7858,
+            "bal_acc": 0.7788,
+            "kappa": 0.5576
+          },
+          "6": {
+            "acc": 0.7883,
+            "bal_acc": 0.7895,
+            "kappa": 0.579
+          }
+        },
+        "mean_bal_acc": 0.7466,
+        "std_bal_acc": 0.0554
+      },
+      "cross_subject": {
+        "per_fold": [
+          {
+            "fold": 0,
+            "test_subjects": [
+              1,
+              4
+            ],
+            "acc": 0.6421,
+            "bal_acc": 0.6391,
+            "kappa": 0.2782
+          },
+          {
+            "fold": 1,
+            "test_subjects": [
+              2
+            ],
+            "acc": 0.5625,
+            "bal_acc": 0.5595,
+            "kappa": 0.119
+          },
+          {
+            "fold": 2,
+            "test_subjects": [
+              3
+            ],
+            "acc": 0.6702,
+            "bal_acc": 0.6672,
+            "kappa": 0.3344
+          },
+          {
+            "fold": 3,
+            "test_subjects": [
+              5
+            ],
+            "acc": 0.6067,
+            "bal_acc": 0.6037,
+            "kappa": 0.2074
+          },
+          {
+            "fold": 4,
+            "test_subjects": [
+              6
+            ],
+            "acc": 0.586,
+            "bal_acc": 0.583,
+            "kappa": 0.166
+          }
+        ],
+        "mean_bal_acc": 0.6105,
+        "std_bal_acc": 0.0431
+      },
+      "permutation": {
+        "within_mean_bal_acc": 0.4936,
+        "cross_mean_bal_acc": 0.4994
+      },
+      "status": "ok",
+      "calibration": {
+        "k": [
+          0,
+          4,
+          8,
+          16,
+          24
+        ],
+        "source_plus_target": [
+          0.6061,
+          0.6489,
+          0.6348,
+          0.6743,
+          0.7063
+        ],
+        "target_only": [
+          null,
+          0.5483,
+          0.5766,
+          0.6272,
+          0.6822
+        ]
+      }
+    },
+    "ts_lr": {
+      "within_subject": {
+        "per_subject": {
+          "1": {
+            "acc": 0.655,
+            "bal_acc": 0.661,
+            "kappa": 0.322
+          },
+          "2": {
+            "acc": 0.7512,
+            "bal_acc": 0.7473,
+            "kappa": 0.4946
+          },
+          "3": {
+            "acc": 0.6844,
+            "bal_acc": 0.6866,
+            "kappa": 0.3732
+          },
+          "4": {
+            "acc": 0.7029,
+            "bal_acc": 0.7047,
+            "kappa": 0.4094
+          },
+          "5": {
+            "acc": 0.6206,
+            "bal_acc": 0.6151,
+            "kappa": 0.2302
+          },
+          "6": {
+            "acc": 0.7623,
+            "bal_acc": 0.7651,
+            "kappa": 0.5302
+          }
+        },
+        "mean_bal_acc": 0.6966,
+        "std_bal_acc": 0.0554
+      },
+      "cross_subject": {
+        "per_fold": [
+          {
+            "fold": 0,
+            "test_subjects": [
+              1,
+              4
+            ],
+            "acc": 0.6449,
+            "bal_acc": 0.6419,
+            "kappa": 0.2838
+          },
+          {
+            "fold": 1,
+            "test_subjects": [
+              2
+            ],
+            "acc": 0.6155,
+            "bal_acc": 0.6125,
+            "kappa": 0.225
+          },
+          {
+            "fold": 2,
+            "test_subjects": [
+              3
+            ],
+            "acc": 0.6245,
+            "bal_acc": 0.6215,
+            "kappa": 0.243
+          },
+          {
+            "fold": 3,
+            "test_subjects": [
+              5
+            ],
+            "acc": 0.6476,
+            "bal_acc": 0.6446,
+            "kappa": 0.2892
+          },
+          {
+            "fold": 4,
+            "test_subjects": [
+              6
+            ],
+            "acc": 0.6711,
+            "bal_acc": 0.6681,
+            "kappa": 0.3362
+          }
+        ],
+        "mean_bal_acc": 0.6377,
+        "std_bal_acc": 0.0217
+      },
+      "permutation": {
+        "within_mean_bal_acc": 0.5152,
+        "cross_mean_bal_acc": 0.517
+      },
+      "status": "ok",
+      "calibration": {
+        "k": [
+          0,
+          4,
+          8,
+          16,
+          24
+        ],
+        "source_plus_target": [
+          0.6275,
+          0.641,
+          0.663,
+          0.6953,
+          0.7187
+        ],
+        "target_only": [
+          null,
+          0.5418,
+          0.5841,
+          0.6484,
+          0.6857
+        ]
+      }
+    },
+    "eegnet_lite": {
+      "within_subject": {
+        "per_subject": {
+          "1": {
+            "acc": 0.5871,
+            "bal_acc": 0.5882,
+            "kappa": 0.1764
+          },
+          "2": {
+            "acc": 0.5593,
+            "bal_acc": 0.5604,
+            "kappa": 0.1208
+          },
+          "3": {
+            "acc": 0.6735,
+            "bal_acc": 0.6738,
+            "kappa": 0.3476
+          },
+          "4": {
+            "acc": 0.7394,
+            "bal_acc": 0.7388,
+            "kappa": 0.4776
+          },
+          "5": {
+            "acc": 0.6779,
+            "bal_acc": 0.6785,
+            "kappa": 0.357
+          },
+          "6": {
+            "acc": 0.7404,
+            "bal_acc": 0.7453,
+            "kappa": 0.4906
+          }
+        },
+        "mean_bal_acc": 0.6642,
+        "std_bal_acc": 0.0761
+      },
+      "cross_subject": {
+        "per_fold": [
+          {
+            "fold": 0,
+            "test_subjects": [
+              1,
+              4
+            ],
+            "acc": 0.5709,
+            "bal_acc": 0.5679,
+            "kappa": 0.1358
+          },
+          {
+            "fold": 1,
+            "test_subjects": [
+              2
+            ],
+            "acc": 0.5361,
+            "bal_acc": 0.5331,
+            "kappa": 0.0662
+          },
+          {
+            "fold": 2,
+            "test_subjects": [
+              3
+            ],
+            "acc": 0.6161,
+            "bal_acc": 0.6131,
+            "kappa": 0.2262
+          },
+          {
+            "fold": 3,
+            "test_subjects": [
+              5
+            ],
+            "acc": 0.617,
+            "bal_acc": 0.614,
+            "kappa": 0.228
+          },
+          {
+            "fold": 4,
+            "test_subjects": [
+              6
+            ],
+            "acc": 0.5624,
+            "bal_acc": 0.5594,
+            "kappa": 0.1188
+          }
+        ],
+        "mean_bal_acc": 0.5775,
+        "std_bal_acc": 0.0353
+      },
+      "permutation": {
+        "within_mean_bal_acc": 0.5166,
+        "cross_mean_bal_acc": 0.497
+      },
+      "status": "ok"
+    }
+  },
+  "stats": {
+    "comparisons": [
+      {
+        "model": "fbcsp_lr",
+        "vs": "csp_lda",
+        "median_diff": 0.0781,
+        "p_raw": 0.2188,
+        "p_holm": 0.6562
+      },
+      {
+        "model": "ts_lr",
+        "vs": "csp_lda",
+        "median_diff": 0.0122,
+        "p_raw": 0.5625,
+        "p_holm": 1.0
+      },
+      {
+        "model": "eegnet_lite",
+        "vs": "csp_lda",
+        "median_diff": 0.0055,
+        "p_raw": 1.0,
+        "p_holm": 1.0
+      }
+    ],
+    "test": "wilcoxon signed-rank, within-subject per-subject bal_acc, Holm"
+  },
+  "runtime_s": {
+    "csp_lda": 12.5,
+    "fbcsp_lr": 30.25,
+    "ts_lr": 20.75,
+    "eegnet_lite": 300.5
+  }
+}

@@ -1,0 +1,11 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+mne
+numpy
+scipy
+scikit-learn
+pyriemann
+torch
+matplotlib
+pandas
+pyyaml
+pytest

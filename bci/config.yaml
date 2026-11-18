@@ -1,0 +1,48 @@
+# FROZEN (Head chef, Phase 0). All settings come from this file. No hyperparameter search.
+
+# --- data (PRD section 5) ---
+subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+runs: [4, 8, 12]
+event_map: {T1: 0, T2: 1}          # T1 = left fist (0), T2 = right fist (1). T0 (rest) is dropped.
+reference: average                 # common average reference
+filter_band: [1.0, 40.0]           # Hz. data.py band-passes the CONTINUOUS raw once (no label use, no fit).
+window: {tmin: 0.5, tmax: 3.49375} # s after cue. tmax = 3.5 - 1/160 -> 480 samples (MNE includes the end point).
+unit_scale: 1.0e6                  # volts -> microvolts
+download_attempts: 3               # then fall back to synthetic.py and label SYNTHETIC - NOT VALID
+data_dir_env: BCI_DATA_DIR         # env var for the MNE data cache. Default: <repo>/.cache/mne_data (inside the repo, git-excluded)
+
+# --- evaluation ---
+n_splits: 5
+std_ddof: 1                        # std over subjects / folds uses ddof=1
+n_permutations: 5                  # permutation_control repeats per model; the reported value is the mean
+n_permutations_eegnet: 1           # compute limit for eegnet_lite only
+calibration_k: [0, 4, 8, 16, 24]
+calibration_repeats: 10            # k = 0 has one draw only (no randomness)
+calibration_models: [csp_lda, fbcsp_lr, ts_lr]
+
+# --- classical models (Claude) ---
+csp_band: [8.0, 30.0]              # Hz. csp_lda band-pass (stateless, inside the estimator)
+csp_components: 6
+csp_reg: ledoit_wolf               # covariance regularization for CSP
+fbcsp_bands: [[8, 12], [12, 16], [16, 20], [20, 24], [24, 30]]
+fbcsp_components: 4                # per band
+filter_order: 4                    # Butterworth order, zero-phase (sosfiltfilt) for all band-pass steps in models
+
+# --- advanced models (Codex) ---
+ts_covariance: oas
+logreg: {C: 1.0, max_iter: 1000}
+eegnet:
+  epochs: 30                       # fixed. No early stopping on test data.
+  learning_rate: 0.001
+  batch_size: 32
+  F1: 8
+  D: 2
+  F2: 16
+  kernel_length: 64
+  dropout: 0.25
+  n_threads: 2                     # torch.set_num_threads
+
+# --- budget and feedback ---
+time_budget_min: 40                # per model, whole evaluation. On overrun: stop, record status "timeout", write BLOCKERS.md
+feedback_model: csp_lda
+feedback: {window_s: 1.0, step_s: 0.25}
