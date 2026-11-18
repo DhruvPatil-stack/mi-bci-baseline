@@ -11,9 +11,9 @@ Data source: `physionet`. Commit: `4b790eb1d43d9bf07af9fc966e07b711696f5c14`.
 
 ## Model status
 
-- `csp_lda`: timeout (partial calibration curve): time budget of 40 min exceeded during calibration
+- `csp_lda`: timeout: time budget of 40 min exceeded during calibration
 - `fbcsp_lr`: timeout: time budget of 40 min exceeded during permutation
-- `ts_lr`: timeout (partial calibration curve): time budget of 40 min exceeded during calibration
+- `ts_lr`: timeout: time budget of 40 min exceeded during calibration
 - `eegnet_lite`: timeout: time budget of 40 min exceeded during cross_subject
 
 ## Finished blocks (from results.json, including models that timed out)
@@ -22,9 +22,9 @@ Balanced accuracy. A model with status timeout keeps the blocks it finished befo
 
 | Model | Status | Within mean (std) | Cross mean (std) | Permutation within / cross | Calibration k done |
 |---|---|---|---|---|---|
-| csp_lda | timeout | 0.5479 (0.1653) | 0.5588 (0.0346) | 0.4902 / 0.5047 | [0] |
+| csp_lda | timeout | 0.5479 (0.1653) | 0.5588 (0.0346) | 0.4902 / 0.5047 | [0, 4, 8, 16, 24] |
 | fbcsp_lr | timeout | 0.5645 (0.1285) | 0.5597 (0.0477) | not finished | none |
-| ts_lr | timeout | 0.5513 (0.1396) | 0.5534 (0.0471) | 0.4972 / 0.5030 | [0] |
+| ts_lr | timeout | 0.5513 (0.1396) | 0.5534 (0.0471) | 0.4972 / 0.5030 | [0, 4, 8, 16, 24] |
 | eegnet_lite | timeout | 0.5435 (0.0826) | not finished | not finished | none |
 
 ## Gate G4 (plausibility, physionet only)
