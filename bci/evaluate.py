@@ -150,8 +150,9 @@ def _calibration(name, X, y, groups, *, deadline=None, cfg=None, progress=None):
     ks = sorted(int(k) for k in cfg["calibration_k"])  # ascending, k by k: every finished k is complete
     if progress is None:
         progress = {}
-    progress.update(k=[], source_plus_target=[], target_only=[])
+    progress.update(k=[], source_plus_target=[], target_only=[], per_target=[])
     spt_curve, to_curve = progress["source_plus_target"], progress["target_only"]
+    per_target = progress["per_target"]  # one dict per finished k: {str(target): {source_plus_target, target_only}}
     for k in ks:
         spt, to = {}, {}  # target -> list of bal_acc over draws
         for target, src, cal, te in splits.calibration_splits(y, groups, k, n_repeats=cfg["calibration_repeats"],
@@ -164,10 +165,46 @@ def _calibration(name, X, y, groups, *, deadline=None, cfg=None, progress=None):
                 to.setdefault(int(target), []).append(float(balanced_accuracy_score(y[te], pred)))
         spt_curve.append(float(np.mean([np.mean(v) for _, v in sorted(spt.items())])))
         to_curve.append(float(np.mean([np.mean(v) for _, v in sorted(to.items())])) if k > 0 else None)
+        per_target.append({str(t): {"source_plus_target": float(np.mean(spt[t])),
+                                    "target_only": float(np.mean(to[t])) if k > 0 else None}
+                           for t in sorted(spt)})
         progress["k"].append(k)  # appended last: k is listed only once both curve values exist
-    block = {"k": list(progress["k"]), "source_plus_target": list(spt_curve), "target_only": list(to_curve)}
+    block = _calibration_block(progress, len(progress["k"]))
+    return block
+
+
+def _calibration_block(progress, n):
+    """Calibration block from the first n finished k values (n == all for a complete run)."""
+    block = {"k": list(progress["k"][:n]), "source_plus_target": list(progress["source_plus_target"][:n]),
+             "target_only": list(progress["target_only"][:n]), "per_target": list(progress["per_target"][:n])}
     contracts.validate_calibration(block)
     return block
+
+
+def run_calibration(name, X, y, groups, budget_min):
+    """Calibration stage only, with its own time budget in minutes (checked before every fit).
+
+    Returns {"calibration": block (absent if no k finished), "status": ok|timeout|error,
+    "calibration_partial": bool, "runtime_s": float, ["error": str]}.
+    """
+    t0 = time.monotonic()
+    deadline = t0 + float(budget_min) * 60.0
+    progress = {}
+    out = {"status": "ok", "calibration_partial": False}
+    try:
+        out["calibration"] = _calibration(name, X, y, groups, deadline=deadline, progress=progress)
+    except _Timeout:
+        out["status"] = "timeout"
+        out["error"] = f"calibration budget of {budget_min} min exceeded"
+        n = len(progress.get("k", []))
+        if n > 0:
+            out["calibration"] = _calibration_block(progress, n)
+            out["calibration_partial"] = True
+    except Exception as exc:  # noqa: BLE001 - recorded, never hidden
+        out["status"] = "error"
+        out["error"] = f"{type(exc).__name__}: {exc}"
+    out["runtime_s"] = float(time.monotonic() - t0)
+    return out
 
 
 # ------------------------------------------------------------------ public API (contract)
@@ -216,10 +253,7 @@ def run_model(name, X, y, groups, calibration: bool):
         out["error"] = f"time budget of {cfg['time_budget_min']} min exceeded during {key}"
         n = len(progress.get("k", []))
         if key == "calibration" and n > 0:
-            part = {"k": list(progress["k"]), "source_plus_target": list(progress["source_plus_target"][:n]),
-                    "target_only": list(progress["target_only"][:n])}
-            contracts.validate_calibration(part)
-            out["calibration"] = part
+            out["calibration"] = _calibration_block(progress, n)
             out["calibration_partial"] = True
     except Exception as exc:  # noqa: BLE001 - recorded in the results, never hidden
         status = "error"
