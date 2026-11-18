@@ -12,7 +12,7 @@ Not merged into main.
 | G2 no leak | PASS | same fast suite (Spy + Oracle on evaluate.py) |
 | G3 synthetic recovery | PASS | fast suite + slow `test_eegnet_recovers` passed |
 | G4 real plausibility | PASS, VACUOUS | 0 fails; every model has status timeout, so `g4_check` checked no value (4 warnings "status timeout, not checked") |
-| G5 report numbers | PASS, WEAK | results.md shows "timeout" for every model and holds no decimals, so the number check had nothing to match |
+| G5 report numbers | PASS | after X3-fix (32dad8a): results.md shows every finished block; all decimals match results.json; stats recomputation matches. Earlier X3-fix (4e2dd10) FAILED G5, see event 5 |
 | G6 determinism | PASS | `test_run_all_twice_same_results` passed (2 passed, 5026.40 s with G3-eegnet); fbcsp_lr timed out at the same k in both runs |
 | G7 fresh venv | PASS (synthetic) | `test_fresh_venv.py` 1 passed in 2838.78 s: fresh .venv_g7, pip install -r requirements.txt, `run_all.py --synthetic` exit 0, valid results.json. Real-data path ran clean in the shared venv (exit 0) |
 
@@ -30,9 +30,16 @@ Not merged into main.
    FROZEN, so no change. The research question (calibration crossover k) is NOT answered by this run.
 3. report.py (Codex-owned) hides finished blocks of models with status timeout; stats.comparisons is empty
    because compute_stats skips non-ok models. Inspection finding HIGH-1 in docs/INSPECTION_claude.md.
-   RETURNED to the Codex Line cook tier (ticket X3). The Codex session has ended, so it is open.
-   Integration mitigation: README.md lists the finished blocks straight from results.json.
+   RETURNED to the Codex Line cook tier (ticket X3-fix). FIXED in 32dad8a (see event 5).
 4. G4 rule (frozen `g4_check`) skips non-ok models, so a full timeout makes G4 vacuous. Not edited.
 
 ## Integration files
 run_all.py (one worker process per model, 2 BLAS threads each), README.md, results/, this file.
+
+5. X3-fix round 1 (4e2dd10) failed G5 on the real results:
+   `FAILED tests/locked/test_report_numbers.py::test_real_results_stats_and_rows`
+   `AssertionError: comparisons for ['eegnet_lite', 'fbcsp_lr', 'ts_lr'], expected []`
+   Cause: compute_stats included non-ok models, against the frozen REPORT CONTRACT. Integration was reset to
+   f48cd31 and the ticket returned to Codex (return 1 of 2). Round 2 (32dad8a) passed: G0 + G4 + G5 +
+   tests/codex 19 passed; re-rendering left results.json byte-identical. Both rounds were committed by the
+   lead because the Codex sandbox still cannot write .git/worktrees/codex/index.lock.

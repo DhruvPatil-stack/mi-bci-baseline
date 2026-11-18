@@ -8,10 +8,10 @@
 | ts_lr | 0.5513 (0.1396) | 0.5534 (0.0471) | 0.4972 / 0.5030 | 0.5557 |
 | eegnet_lite | 0.5435 (0.0826) | not finished | not finished | not finished |
 Runtime_s: 2405.9, 2415.0, 2413.8, 2422.7. No paired stats (compute_stats skips non-ok models). **The main question (calibration crossover k) is NOT answered:** only k=0 finished.
-**Gates:** G0 PASS, G1 PASS, G2 PASS, G3 PASS, G4 PASS but vacuous (no ok model was checked), G5 PASS but weak (results.md has no decimals), G6 PASS (fbcsp_lr timed out at the same k in both synthetic runs), G7 PASS (fresh venv, synthetic). Details: docs/INTEGRATION.md.
+**Gates:** G0 PASS, G1 PASS, G2 PASS, G3 PASS, G4 PASS but vacuous (no ok model was checked), G5 PASS (after the X3 fix results.md shows every finished block), G6 PASS (fbcsp_lr timed out at the same k in both synthetic runs), G7 PASS (fresh venv, synthetic). Details: docs/INTEGRATION.md.
 **Blockers:**
 - Frozen budget too small: 40 min per model vs 820 full-source calibration fits. Fix in v0.3: raise `time_budget_min` or lower `calibration_repeats` (Head-chef decision on main).
-- report.py hides finished blocks of timed-out models (INSPECTION_claude HIGH-1). Returned to the Codex X3 Line cook, still open. README lists the blocks as a workaround.
+- report.py hid finished blocks of timed-out models (INSPECTION_claude HIGH-1). Fixed by Codex in 2 rounds (round 1 failed G5); merged as 32dad8a.
 - Codex sandbox: no git commit, no `codex exec`, no pytest tmp_path (docs/codex/BLOCKERS.md).
 **G4 warnings:** 4x "status timeout, not checked". If the rule were applied to the partial blocks, csp_lda within 0.5479 would sit below the 0.55 lower limit. That is a warning, not a fail.
 **Inspections:** Claude on Codex files: 1 HIGH, 4 MEDIUM, 5 LOW. Codex on Claude files: 1 High (calibration budget), 2 Medium, 1 Low; no leak found.
