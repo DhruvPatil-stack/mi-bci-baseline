@@ -1,20 +1,22 @@
-# Claude branch DONE (claude/foundation-classical)
+# Claude branch DONE (claude/speed-stroke, v0.3)
 
-Commits: 62f9ae3 C1 data.py, c419460 C2 models_classical.py, dae4685 C3-C5 evaluate.py + tests/claude + docs.
-Each ticket: built by its tier cook, then checked by a NEW Opus sous-chef that read only ticket + PRD + diff. All 3 checks: VERDICT PASS, 0 returns.
+Tickets: S1 366a14c, S2 7771ad3, S3 f509e3d, S4 602bd2e. Each built by a subagent of the section 11 tier
+(S1, S2, S4 Sous chef Opus; S3 Line cook Sonnet) and checked by a NEW sous-chef session: 4 of 4 PASS, 0 returns.
 
-| Gate | Result on this branch | Source |
-|---|---|---|
-| G0 ownership | PASS (1 passed, 1 skipped: integration-only test) | lead run after dae4685 |
-| G1 contracts | PASS, incl. offline epochs_from_raw check and BCI_REAL_DATA=1 subject check (4 passed) | C1 check |
-| G2 no leak | PASS (10 passed: splits, Spy, Oracle) | C3 build and C3-C5 check |
-| G3 synthetic recovery | PASS for csp_lda and fbcsp_lr, evaluate permutation and cross recovery | C2 check, C3-C5 check |
-| G4 real plausibility | not run (needs results.json; integration) | - |
-| G5 report numbers | not run (report.py is Codex-owned) | - |
-| G6 determinism | two-fit check PASS for csp_lda, fbcsp_lr; run_all part needs integration | C2 check |
-| G7 fresh venv | not run (needs run_all.py; integration) | - |
-
-Full locked run `-m "not slow"` in the C3-C5 check: 36 passed, 19 skipped, 2 deselected. tests/claude: 10 passed.
-
-Open: BLOCKERS.md runtime. Projected (not measured) real calibration time exceeds the 40 min budget; config stays frozen; evaluate keeps a partial calibration block on timeout.
-Minor (accepted): tests/claude has no test of the run_model timeout/partial path (C3-C5 check note).
+## Gate results on this branch (measured by the checks, after S3 and with S4 present)
+`pytest tests/locked -q -m "not slow"`: 1 failed, 81 passed, 17 skipped, 2 deselected (S4 check run, 424.93 s).
+- G0 ownership: PASS
+- G1 contracts (incl. stroke-shape for csp_lda, fbcsp_lr; sfreq follows dataset): PASS
+- G2 no leak: PASS
+- G3 synthetic recovery (not slow): PASS
+- G4 real plausibility: FAIL, expected: it reads the v0.2 results/results.json (4 models status timeout,
+  "G4 checked no model"). Only the S5 full run on integration/v0.3 can change it.
+- G5 report numbers: the tests that ran passed (real-results tests read the v0.2 files).
+- G6 two seeded run_all runs: not run here (slow; run_all.py belongs to integration).
+- G7 fresh venv: not run (opt-in).
+- G8 cache = uncached to 1e-9: PASS (7 tests incl. 4 concurrent processes)
+- G9 csp_lda fit <= 1.567 s: PASS (S1 builder probe median 1.249 s under partial load; G9 prints only on failure)
+- G10 wall clock / checkpoint: PASS (3 tests)
+- G11, G12: skipped here (Codex gates)
+- G13 stroke loader with BCI_EXPECT_STROKE=1: PASS (2 passed)
+- G14 hygiene: PASS
