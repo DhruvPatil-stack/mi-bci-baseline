@@ -1,0 +1,27 @@
+{
+  "csp_lda": {
+    "n_patients": 47,
+    "mean_bal_acc": 0.5063829787234043,
+    "std_bal_acc": 0.12942893856769588,
+    "ci95_mean": [
+      0.4707446808510639,
+      0.5436170212765957
+    ],
+    "n_le_0.5": 28,
+    "max": 0.85,
+    "min": 0.275
+  },
+  "ts_lr": {
+    "n_patients": 47,
+    "mean_bal_acc": 0.5622340425531915,
+    "std_bal_acc": 0.19413075073549937,
+    "ci95_mean": [
+      0.5079787234042552,
+      0.6180851063829786
+    ],
+    "n_le_0.5": 20,
+    "max": 0.95,
+    "min": 0.25
+  },
+  "method": "percentile bootstrap over patients, 10000 resamples, numpy default_rng([42, 0, 0]); source: results/stroke/checkpoints (within_subject stage only; the run was stopped)"
+}

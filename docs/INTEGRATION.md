@@ -33,10 +33,10 @@ Synthetic smoke run (BCI_ENFORCE_TIME_BUDGET=0): exit 0, 4 models ok, 875 s wall
 | G0 ownership | PASS | 3 passed (incl. integration did not edit branch files) |
 | G1 contracts | FAIL | `test_estimators_work_on_stroke_shape[eegnet_lite]`: `ValueError: expected trials x 64 channels x samples, got (48, 29, 1500)`. 42 passed, 1 skipped. Owner: Codex (bci/models_advanced.py); no Codex session to return it to |
 | G2 no leak | PASS | in the 42 passed above |
-| G3 synthetic recovery | PASS (not slow) | 17 passed with G9 and G6-unit; slow eegnet recovery: see G6 line |
+| G3 synthetic recovery | PASS | 17 passed (not slow, with G9 and G6-unit); slow test_eegnet_recovers passed in the G6 run-1 batch |
 | G4 real plausibility | PASS | warnings: csp_lda and fbcsp_lr subject 7 within bal_acc 0.9783 > 0.95; csp_lda within mean 0.5479 outside (0.55, 0.9) |
 | G5 report numbers | PASS | 9 passed, including results.md vs results.json on the real results |
-| G6 two seeded runs | FAIL (run 1), rerun pending | 08:06-08:52: `AssertionError: two seeded runs gave different results.json`. The only differing key: meta.git_commit `23811659...` vs `23811659...-dirty` (I edited docs/INTEGRATION.md while run 1 ran). Every other value equal. Rerun on a clean tree: see the G6 rerun line below |
+| G6 two seeded runs | FAIL (run 1), rerun pending | 08:06-08:52: `AssertionError: two seeded runs gave different results.json`. The only differing key: meta.git_commit `23811659...` vs `23811659...-dirty` (I edited docs/INTEGRATION.md while run 1 ran). Every other value equal. Rerun on a clean tree (29539e7, 08:53-09:38): PASS, `1 passed in 2714.11s` |
 | G7 fresh venv | not run | opt-in (BCI_RUN_G7), not run this night |
 | G8 cache | PASS | 7 passed |
 | G9 speed | PASS alone, FAIL under load | PASS in the gate run (08:00, nothing else running). FAIL in the inspector's full-suite run, which ran at the same time as the G6 run_all workers (`test_csp_lda_fit_speed` failed). The S1 builder measured median 1.249 s under partial load and 1.573 s / 1.713 s at 79-94 % CPU. The margin under the 1.567 s limit is small; judge G9 on a quiet machine |
@@ -47,3 +47,13 @@ Synthetic smoke run (BCI_ENFORCE_TIME_BUDGET=0): exit 0, 4 models ok, 875 s wall
 | G14 hygiene | PASS | 3 passed |
 
 The G1, G11 and G12 failures are in Codex-owned files. Integration fixes only integration files, so they stay failed.
+
+## Stroke interval (added after the gates)
+results/stroke/within_ci.json: percentile bootstrap 95% CI of the mean within-subject bal_acc over the 47 patients,
+10000 resamples, numpy default_rng([42, 0, 0]), computed from results/stroke/checkpoints (script
+.cache/probes/stroke_ci.py, git-excluded). csp_lda 0.5064 [0.4707, 0.5436]; ts_lr 0.5622 [0.5080, 0.6181].
+
+## Not done
+- Codex inspection of the Claude files: Codex inactive; see .sync3 / docs/MORNING_REPORT_v0.3.md.
+- Stroke rerun: needs a human go-ahead (host stopped it for low memory).
+- G7 fresh venv: not run.
