@@ -1,0 +1,72 @@
+{
+  "meta": {
+    "data_source": "stroke",
+    "dataset": "stroke",
+    "seed": 42,
+    "subjects": [
+      1,
+      2,
+      3,
+      4,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      50
+    ],
+    "git_commit": "1e7df9457ae747cdc24ead71138a029ef7f51ba6-dirty",
+    "timestamp": "2026-11-20T07:56:36",
+    "n_trials": 1880,
+    "partial": true
+  },
+  "models": {
+    "eegnet_lite": {
+      "error": "ValueError: expected trials x 64 channels x samples, got (32, 29, 1500)",
+      "status": "error"
+    }
+  },
+  "stats": {
+    "comparisons": []
+  },
+  "runtime_s": {
+    "eegnet_lite": 5.870322400005534
+  }
+}
