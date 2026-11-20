@@ -62,4 +62,4 @@ LIMITS
 
 LESSONS
 - v0.2: Before freezing a time budget, multiply the fit count by a measured fit time. A frozen 40 min budget against 820 calibration fits made every model time out, and the gates that skip non-ok results then passed with nothing checked.
-- v0.3: Give each agent a heartbeat file with a timestamp and check it at the first marker. Codex never started, and nobody knew until the 45-minute review deadline; the whole Codex half (responders, ERD) was lost.
+- v0.3: Give each agent a heartbeat file with a timestamp and check it at the first marker. Codex stopped after its first step and never acted on P0_DONE; nobody knew until the 45-minute review deadline, and the whole Codex half (responders, ERD) was lost.

@@ -4,7 +4,8 @@ The v0.2 integration notes are in this file on main and tag v0.2 (`git show v0.2
 Built 2026-11-20 by the Claude lead. Base: base/v0.3 (18b78b2). Merged: claude/speed-stroke (06eb7d3) as 7276571.
 codex/heterogeneity was NOT merged: it holds no commit and no uncommitted file beyond base/v0.3 (checked with
 `git -C worktrees/v3-codex status --short` and `git log`). Codex wrote no marker after P0_DONE
-(.sync3/STATE_codex.md last changed 03:52: "wait for .sync3\P0_DONE"). Tickets H1-H4 were not delivered.
+(.sync3/STATE_codex.md last changed 03:52: "FIRST complete ... wait for .sync3\P0_DONE"; Codex stopped after its
+first step and never acted on P0_DONE, written 04:19). Tickets H1-H4 were not delivered.
 
 ## run_all.py v0.3 (1e7df94)
 Per-model checkpoint files under OUT/checkpoints (`--fresh` deletes them), results.json after every finished model,
@@ -15,9 +16,11 @@ Synthetic smoke run (BCI_ENFORCE_TIME_BUDGET=0): exit 0, 4 models ok, 875 s wall
 ## S5 runs
 - PhysioNet: `run_all.py --fresh`, 06:48 to 07:55, exit 0. All 4 models status ok with every stage complete.
   runtime_s: csp_lda 868.8, fbcsp_lr 3508.0, ts_lr 4001.1, eegnet_lite 3606.4 (v0.2: all 4 timeout at 40 min).
-  The csp_lda, fbcsp_lr, ts_lr within/cross means and the calibration curves equal the v0.2 values to 4 decimals
-  (e.g. csp_lda within 0.5479, ts_lr k = 4 difference 0.0258 [0.0032, 0.0520]), so the S1 cache and csp_rank change
-  did not move these results. heterogeneity: responders and ERD "not measured" (Codex modules missing).
+  csp_lda within, cross and calibration, and fbcsp_lr within and cross, equal the v0.2 values to 4 decimals (e.g.
+  csp_lda within 0.5479, cross 0.5588). These are the models that use the S1 cache and csp_rank, so those changes did
+  not move the results. (fbcsp_lr had no v0.2 calibration/permutation block; ts_lr does not use the changed code.)
+  Only csp_lda (868.8 s vs v0.2 timeout) shows the speedup; the other 3 models ran longer than 2400 s and finished
+  because time_budget_min is now 180. heterogeneity: responders and ERD "not measured" (Codex modules missing).
 - Stroke: `run_all.py --dataset stroke --fresh` (BCI_STROKE_DIR = <root>\.cache\stroke), started 07:56.
   STOPPED by Claude Code: "Background command ... was stopped because the system is running low on memory".
   The harness rule is to not restart it without the human, so it was not restarted. Finished before the stop
