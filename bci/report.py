@@ -94,6 +94,59 @@ def _figures(results, out_dir):
     save(fig, "fig3_permutation.png")
 
 
+def _v3_analysis_lines(results):
+    """Render optional v0.3 analysis blocks without deriving new measurements."""
+    lines = []
+    analysis = results.get("responder_analysis")
+    if isinstance(analysis, dict):
+        rows = analysis.get("per_subject", {})
+        if rows:
+            lines += ["", "## Responder analysis", "",
+                      "Responder rule: subject-level permutation p-value is below the pre-specified alpha.", "",
+                      "| Subject | Balanced accuracy | Permutation p | Responder |",
+                      "|---:|---:|---:|---|"]
+            for sid in sorted(rows, key=int):
+                row = rows[sid]
+                score, pvalue = row.get("score"), row.get("p_value")
+                if score is None or pvalue is None:
+                    continue
+                flag = "yes" if row.get("responder") else "no"
+                lines.append(f"| {sid} | {score:.4f} | {pvalue:.4f} | {flag} |")
+        summary = analysis.get("summary")
+        if isinstance(summary, dict) and summary.get("count") is not None:
+            ci = summary.get("ci95", [None, None])
+            if len(ci) == 2 and ci[0] is not None and ci[1] is not None:
+                lines += ["", f"Responders: {summary['count']} of {summary['n']}; 95% Clopper-Pearson "
+                          f"interval [{ci[0]:.4f}, {ci[1]:.4f}]. Expected false positives: "
+                          f"{summary['expected_false_positives']:.4f}."]
+        gain = analysis.get("calibration_gain")
+        if isinstance(gain, dict) and gain.get("k"):
+            lines += ["", "## Calibration gain by responder group", "",
+                      "Gain is source-plus-target score minus that target's k=0 score. The difference is responders minus non-responders.", "",
+                      "| k | Responders | Non-responders | Difference | 95% bootstrap CI |",
+                      "|---:|---:|---:|---:|---|"]
+            for values in zip(gain["k"], gain.get("responders", []), gain.get("non_responders", []),
+                              gain.get("diff", []), gain.get("diff_ci95", [])):
+                k, responders, nonresponders, difference, interval = values
+                text = lambda value: "—" if value is None else f"{value:.4f}"
+                ci_text = "—" if interval is None else f"[{interval[0]:.4f}, {interval[1]:.4f}]"
+                lines.append(f"| {k} | {text(responders)} | {text(nonresponders)} | {text(difference)} | {ci_text} |")
+    erd = results.get("erd")
+    if isinstance(erd, dict) and erd.get("lateralization"):
+        lines += ["", "## ERD lateralization", "",
+                  "LS is the pre-specified C3/C4 mu-band lateralization score; negative is the expected healthy-sign direction.", "",
+                  "| Subject | LS |", "|---:|---:|"]
+        for sid in sorted(erd["lateralization"], key=int):
+            lines.append(f"| {sid} | {erd['lateralization'][sid]:.4f} |")
+        association = erd.get("association")
+        if isinstance(association, dict) and association.get("rho") is not None:
+            lines += ["", f"Spearman LS versus within-subject balanced accuracy: rho "
+                      f"{association['rho']:.4f}, p {association['p']:.4f}, n={association['n']}."]
+    if analysis or erd:
+        lines += ["", "The responder calibration comparison is observational and subject selection can cause regression to the mean."]
+    return lines
+
+
 def write_report(results_path, out_dir):
     """Write Markdown and three figures from a results JSON file; return Markdown path."""
     source = Path(results_path)
@@ -173,6 +226,7 @@ def write_report(results_path, out_dir):
         cohort += " The subjects are healthy volunteers."
     else:
         cohort += " These are synthetic subjects and trials."
+    lines += _v3_analysis_lines(results)
     lines += ["", "## Figures", "", "![Model comparison](fig1_models.png)", "",
               "![Calibration curves](fig2_calibration.png)", "",
               "![Permutation control](fig3_permutation.png)", "", "## Limits", "",
