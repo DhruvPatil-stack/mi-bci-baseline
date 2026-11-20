@@ -85,3 +85,8 @@ G9 times the fit as CV sees it: cache warm for a 900-trial array, each timed fit
   branch's work). G1 stroke-shape test: classical models on claude/*, advanced models on codex/*, all on integration.
 - G11/G12 were probed with Head-chef reference implementations (`.cache/probes/ref/`, git-excluded): all pass, and
   2 planted bugs (flipped LS sign, ">" instead of ">=" in p) are caught.
+- G9 feasibility probe (`.cache/probes/p0_g9.py`, 2 threads, filter output precomputed, new 850-row subset per fit,
+  median of 3): mne CSP rank=None 4.147 s, rank="full" 1.225 s, rank={"eeg": 63} 1.129 s (same on CAR data:
+  3.647 / 1.211 / 1.104 s). Decision: new frozen key `csp_rank: full` (dataset-agnostic, no per-fold rank estimate).
+  G3 probe (`.cache/probes/p0_g3rank.py`): csp_lda cross-subject bal_acc 0.9688 with rank None and with "full";
+  top-2 CSP filters on channels {0, 1} in both. G9 now pins 2 BLAS threads (threadpoolctl) like the baseline.

@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 
 import numpy as np
+from threadpoolctl import threadpool_limits
 
 from bci.synthetic import make_synthetic
 from conftest import required_module
@@ -18,6 +19,7 @@ from conftest import required_module
 V02_BASELINE_S = 6.267
 LIMIT_S = 0.25 * V02_BASELINE_S
 OWNERS = ("claude/",)
+BLAS_THREADS = 2
 
 
 def test_csp_lda_fit_speed(monkeypatch, tmp_path):
@@ -30,12 +32,19 @@ def test_csp_lda_fit_speed(monkeypatch, tmp_path):
     X, y, _, _ = make_synthetic(n_subjects=1, trials_per_subject=900, seed=1)
     mc.REGISTRY["csp_lda"]().fit(X, y)  # warm: imports and the filter cache for all 900 trials
     times = []
+    with threadpool_limits(limits=BLAS_THREADS):  # the baseline ran with 2 BLAS threads
+        times = _timed_fits(mc, X, y)
+    med = float(np.median(times))
+    assert med <= LIMIT_S, (f"csp_lda fit median {med:.3f} s (runs {[round(t, 3) for t in times]}) > "
+                            f"{LIMIT_S:.3f} s = 25 % of the v0.2 {V02_BASELINE_S} s")
+
+
+def _timed_fits(mc, X, y):
+    times = []
     for r in range(3):
         idx = np.sort(np.random.default_rng(100 + r).choice(len(X), size=850, replace=False))
         Xs, ys = X[idx], y[idx]
         t0 = time.perf_counter()
         mc.REGISTRY["csp_lda"]().fit(Xs, ys)
         times.append(time.perf_counter() - t0)
-    med = float(np.median(times))
-    assert med <= LIMIT_S, (f"csp_lda fit median {med:.3f} s (runs {[round(t, 3) for t in times]}) > "
-                            f"{LIMIT_S:.3f} s = 25 % of the v0.2 {V02_BASELINE_S} s")
+    return times

@@ -25,6 +25,7 @@ calibration_models: [csp_lda, fbcsp_lr, ts_lr]
 csp_band: [8.0, 30.0]              # Hz. csp_lda band-pass (stateless, inside the estimator)
 csp_components: 6
 csp_reg: ledoit_wolf               # covariance regularization for CSP
+csp_rank: full                     # v0.3: mne CSP rank. v0.2 used None (rank estimated by SVD every fit, 3.5 s of 6.3 s). docs/DECISIONS.md
 fbcsp_bands: [[8, 12], [12, 16], [16, 20], [20, 24], [24, 30]]
 fbcsp_components: 4                # per band
 filter_order: 4                    # Butterworth order, zero-phase (sosfiltfilt) for all band-pass steps in models

@@ -34,6 +34,7 @@ def test_config_window_gives_480_samples():
     assert cfg["runs"] == [4, 8, 12]
     assert cfg["subjects"] == list(range(1, 21))
     assert cfg["csp_components"] == 6
+    assert cfg["csp_rank"] == "full"
     assert cfg["calibration_k"] == [0, 4, 8, 16, 24]
     assert cfg["calibration_models"] == ["csp_lda", "fbcsp_lr", "ts_lr"]
     assert cfg["fbcsp_bands"] == [[8, 12], [12, 16], [16, 20], [20, 24], [24, 30]]
