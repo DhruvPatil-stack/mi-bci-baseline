@@ -11,7 +11,7 @@ Platform: Windows 11, PowerShell (`;` not `&&`). Work only in the worktree folde
 `..\..\.venv\Scripts\python.exe` from a worktree. Never read, write or delete outside the repo folder.
 
 Rules:
-- Read AGENTS.md, the ticket text, PRD.md sections 4-7, and the bci/contracts.py docstring.
+- Read AGENTS.md, the ticket text, PRD_v0.3.md (it wins over PRD.md), and the bci/contracts.py docstring.
 - Edit only the files the ticket names. Never edit tests/locked/, FROZEN files, or Codex-owned files.
 - Every setting comes from bci/config.yaml (load with bci.contracts.load_config()). No hyperparameter search.
 - Seed every random source with bci.contracts.SEED. CPU only.

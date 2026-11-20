@@ -10,7 +10,7 @@ Platform: Windows 11, PowerShell (`;` not `&&`). Work only in the worktree folde
 `..\..\.venv\Scripts\python.exe` from a worktree. Never read, write or delete outside the repo folder.
 
 Rules:
-- Read AGENTS.md, the ticket text you are given, and PRD.md. Contracts are in bci/contracts.py (docstring).
+- Read AGENTS.md, the ticket text you are given, and PRD_v0.3.md (it wins over PRD.md). Contracts are in bci/contracts.py (docstring).
 - Edit only the files the ticket names. Never edit tests/locked/, FROZEN files, or Codex-owned files.
 - Every setting comes from bci/config.yaml. No hyperparameter search. CPU only. No API keys.
 - Never edit a check to make it pass. Never write a number you did not measure.
@@ -20,7 +20,7 @@ When BUILDING: write the code, run the locked checks that apply
 (`..\..\.venv\Scripts\python.exe -m pytest tests/locked -q -m "not slow"` plus named slow tests), report
 pass/fail with the exact output tail.
 
-When CHECKING (a NEW session): read only the ticket, PRD.md, and the diff (`git diff main...HEAD -- <files>`
+When CHECKING (a NEW session): read only the ticket, PRD_v0.3.md, and the diff (`git diff base/v0.3...HEAD -- <files>`
 plus uncommitted changes). Do not read the builder's reasoning. Run the locked checks that apply. Look for:
 leaks (fit sees test rows), unit errors (volts vs uV), label map (T1=0 left, T2=1 right), off-by-one windows,
 unseeded randomness, scope drift. Return VERDICT: PASS or VERDICT: FAIL with the exact error text and the

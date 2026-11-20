@@ -1,4 +1,7 @@
-﻿"""Gate G1 (FROZEN): shapes, types, registry format, estimator methods, evaluator and report signatures."""
+"""Gate G1 (FROZEN): shapes, types, registry format, estimator methods, evaluator and report signatures.
+
+v0.3: the data contract is dataset-dependent (contracts.DATASETS). Estimators must work on the stroke shape.
+"""
 from __future__ import annotations
 
 import inspect
@@ -34,7 +37,11 @@ def test_config_window_gives_480_samples():
     assert cfg["calibration_k"] == [0, 4, 8, 16, 24]
     assert cfg["calibration_models"] == ["csp_lda", "fbcsp_lr", "ts_lr"]
     assert cfg["fbcsp_bands"] == [[8, 12], [12, 16], [16, 20], [20, 24], [24, 30]]
-    assert cfg["time_budget_min"] == 40
+    assert cfg["time_budget_min"] == 180  # v0.3: safety stop only
+    assert cfg["enforce_time_budget"] is True
+    assert cfg["n_permutations_subject"] == 200
+    assert cfg["responder_alpha"] == 0.05
+    assert cfg["erd_band_mu"] == [8, 13] and cfg["erd_band_beta"] == [13, 30]
     assert cfg["feedback_model"] == "csp_lda"
 
 
@@ -274,3 +281,104 @@ def test_feedback_direction(synth_small, tmp_path):
         _, p = fb.simulate_feedback(est, X[i], SFREQ, str(tmp_path / f"fb{i}.png"))
         means[int(y[i])].append(float(np.mean(p)))
     assert np.mean(means[1]) > np.mean(means[0]), "feedback P(right) is not higher for right-hand trials"
+
+# ------------------------------------------------------------------ v0.3 dataset contract
+def test_datasets_contract():
+    assert contracts.DATASETS["physionet"] == {"n_channels": 64, "sfreq": 160, "n_samples": 480}
+    st = contracts.DATASETS["stroke"]
+    cfg = contracts.load_config()["stroke"]
+    assert st["sfreq"] == cfg["sfreq"] == 500
+    assert st["n_channels"] == cfg["n_eeg_channels"] == 29
+    w = cfg["window"]
+    assert int(round((w["tmax"] - w["tmin"]) * st["sfreq"])) + 1 == st["n_samples"] == 1500
+    assert cfg["label_map"] == {1: 0, 2: 1}
+    assert "stroke" in contracts.DATA_SOURCES
+
+
+def test_dataset_selection_by_env(monkeypatch):
+    monkeypatch.delenv(contracts.DATASET_ENV, raising=False)
+    assert contracts.dataset_name() == "physionet"
+    assert contracts.dataset_spec()["sfreq"] == 160
+    monkeypatch.setenv(contracts.DATASET_ENV, "stroke")
+    assert contracts.dataset_spec()["sfreq"] == 500
+    monkeypatch.setenv(contracts.DATASET_ENV, "nope")
+    with pytest.raises(ValueError):
+        contracts.dataset_spec()
+
+
+def test_validate_data():
+    X = np.zeros((4, 64, 480), np.float32)
+    y = np.array([0, 1, 0, 1])
+    g = np.array([1, 1, 2, 2])
+    contracts.validate_data(X, y, g, "physionet")
+    for bad in (X.astype(np.float64), X[:, :63], X[:, :, :479]):
+        with pytest.raises(ValueError):
+            contracts.validate_data(bad, y, g, "physionet")
+    with pytest.raises(ValueError):
+        contracts.validate_data(X, np.array([0, 1, 2, 1]), g, "physionet")
+    with pytest.raises(ValueError):
+        contracts.validate_data(X, y, g, "stroke")
+    contracts.validate_data(np.zeros((4, 29, 1500), np.float32), y, g, "stroke")
+
+
+def test_enforce_time_budget_env(monkeypatch):
+    monkeypatch.delenv(contracts.ENFORCE_ENV, raising=False)
+    assert contracts.enforce_time_budget() is True
+    monkeypatch.setenv(contracts.ENFORCE_ENV, "0")
+    assert contracts.enforce_time_budget() is False
+    monkeypatch.setenv(contracts.ENFORCE_ENV, "1")
+    assert contracts.enforce_time_budget() is True
+
+
+def _stroke_shaped(n=60, seed=3):
+    """Random data in the stroke shape with a planted 10 Hz ERD on channels 13 (C3) and 14 (C4)."""
+    spec = contracts.DATASETS["stroke"]
+    rng = np.random.default_rng(seed)
+    t = np.arange(spec["n_samples"]) / spec["sfreq"]
+    y = np.repeat([0, 1], n // 2)
+    X = 10.0 * rng.standard_normal((n, spec["n_channels"], spec["n_samples"]))
+    for i, lab in enumerate(y):
+        for ch, cls in ((14, 0), (13, 1)):  # left (0) desynchronizes C4, right (1) desynchronizes C3
+            amp = 30.0 * (np.sqrt(0.3) if lab == cls else 1.0)
+            X[i, ch] += amp * np.sin(2 * np.pi * 10 * t + rng.uniform(0, 2 * np.pi))
+    return X.astype(np.float32), y.astype(np.int64)
+
+
+@pytest.mark.parametrize("name", _model_names() or ["<none>"])
+def test_estimators_work_on_stroke_shape(name, monkeypatch):
+    """S3 / PRD_v0.3 section 7 item 2: no estimator may assume 64 channels or 160 Hz."""
+    if name == "<none>":
+        pytest.skip("no model module on this branch")
+    from conftest import current_branch, model_owner_prefixes
+
+    branch = current_branch()
+    owners = model_owner_prefixes(name) + ("integration/v0.3",)
+    if not any(branch.startswith(p) for p in owners):
+        pytest.skip(f"{name} is the work of {owners}; not checked on {branch}")
+    monkeypatch.setenv(contracts.DATASET_ENV, "stroke")
+    X, y = _stroke_shaped()
+    est = all_registries()[name]()
+    # every sampling-rate parameter of the estimator must be the stroke rate
+    for key, val in est.get_params(deep=True).items():
+        leaf = key.split("__")[-1]
+        if leaf in ("fs", "sfreq", "sampling_rate", "srate"):
+            assert val == 500, f"{name}: parameter {key} = {val}, expected the dataset sfreq 500"
+    tr = np.r_[0:24, 30:54]
+    te = np.r_[24:30, 54:60]
+    est.fit(X[tr], y[tr])
+    proba = np.asarray(est.predict_proba(X[te]))
+    assert proba.shape == (len(te), 2)
+    assert np.allclose(proba.sum(axis=1), 1.0, atol=1e-6)
+
+
+def test_classical_sfreq_follows_dataset(monkeypatch):
+    """BandPass must take the sampling rate from the active dataset, not from the PhysioNet constant."""
+    from conftest import required_module
+
+    mc = required_module("models_classical", ("claude/",))
+    for ds, fs in (("physionet", 160), ("stroke", 500)):
+        monkeypatch.setenv(contracts.DATASET_ENV, ds)
+        for name in ("csp_lda", "fbcsp_lr"):
+            params = mc.REGISTRY[name]().get_params(deep=True)
+            fss = [v for k, v in params.items() if k.split("__")[-1] == "fs"]
+            assert fss and all(v == fs for v in fss), f"{name} on {ds}: fs values {fss}, expected {fs}"

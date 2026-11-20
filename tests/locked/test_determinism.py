@@ -1,4 +1,4 @@
-"""Gate G6 (FROZEN): seed 42 gives identical outputs.
+"""Gate G6 (FROZEN): seed 42 gives identical outputs. v0.3: time limits are off (BCI_ENFORCE_TIME_BUDGET=0).
 
 RUN_ALL CONTRACT (integration): `python run_all.py --synthetic --out DIR` writes DIR/results.json
 (and the report files) using synthetic.make_synthetic() defaults. Without --synthetic it uses PhysioNet with
@@ -7,6 +7,7 @@ the 3-attempt synthetic fallback. --out defaults to results/.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -53,8 +54,9 @@ def test_run_all_twice_same_results(tmp_path):
     outs = []
     for i in range(2):
         out = tmp_path / f"run{i}"
+        env = {**os.environ, "BCI_ENFORCE_TIME_BUDGET": "0"}  # v0.3: G6 runs without wall-clock limits (G10)
         r = subprocess.run([sys.executable, "run_all.py", "--synthetic", "--out", str(out)], cwd=REPO,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, env=env)
         assert r.returncode == 0, f"run_all.py failed:\n{r.stdout[-3000:]}\n{r.stderr[-3000:]}"
         outs.append(json.loads((out / "results.json").read_text(encoding="utf-8")))
     assert outs[0]["meta"]["data_source"] == "synthetic"

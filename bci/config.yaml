@@ -1,4 +1,4 @@
-﻿# FROZEN (Head chef, Phase 0). All settings come from this file. No hyperparameter search.
+# FROZEN (Head chef, Phase 0; v0.3 additions marked v0.3). All settings come from this file. No hyperparameter search.
 
 # --- data (PRD section 5) ---
 subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
@@ -44,6 +44,24 @@ eegnet:
   n_threads: 2                     # torch.set_num_threads
 
 # --- budget and feedback ---
-time_budget_min: 40                # per model, whole evaluation. On overrun: stop, record status "timeout", write BLOCKERS.md
+time_budget_min: 180               # v0.3: SAFETY STOP only (per model, whole evaluation). On overrun: status "timeout"
+enforce_time_budget: true          # v0.3: tests set BCI_ENFORCE_TIME_BUDGET=0 (contracts.enforce_time_budget). G10: no result may depend on wall-clock time
 feedback_model: csp_lda
 feedback: {window_s: 1.0, step_s: 0.25}
+
+# --- v0.3 responder rule and ERD check (PRD_v0.3 section 4, fixed before any result) ---
+n_permutations_subject: 200        # label shuffles per subject for the responder p-value
+responder_alpha: 0.05              # responder: p < alpha
+erd_band_mu: [8, 13]               # Hz, LS uses this band
+erd_band_beta: [13, 30]            # Hz, reported only
+
+# --- v0.3 stroke dataset (Liu et al. 2024; facts and sources in docs/STROKE_DATASET.md). Fixed before any data was loaded ---
+stroke:
+  subjects: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
+  label_map: {1: 0, 2: 1}          # trial_type 1 = left hand -> 0, 2 = right hand -> 1 (task-motor-imagery_events.json)
+  sfreq: 500                       # Hz, native (task-motor-imagery_eeg.json). No resampling
+  n_eeg_channels: 29               # EOG (HEOL, VEOR) and the marker channel are dropped
+  reference: average               # common average reference over the 29 EEG channels (recorded reference CPz)
+  filter_band: [1.0, 40.0]         # Hz, same as PhysioNet
+  window: {tmin: 0.5, tmax: 3.498} # s after the motor-imagery onset (event value 2). 3 s -> 1500 samples at 500 Hz (end point included)
+  data_dir_env: BCI_STROKE_DIR     # default <repo>/.cache/stroke (git-excluded). Raw data is never committed

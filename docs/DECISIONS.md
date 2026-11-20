@@ -48,3 +48,40 @@ single-process estimates above (about 2075 s and 1982 s). The two workers ran at
 overrun was not measured. fbcsp_lr was not run; with estimates running low by this much, the about 160 min
 estimate for fbcsp_lr (already above 60 min) supports that decision more strongly. Within, cross and permutation blocks in results.json are unchanged (checked against the pre-run backup).
 Results and intervals: docs/CALIBRATION.md.
+
+---
+
+# v0.3 Phase 0 decisions (Head chef, base/v0.3, 2026-11-20)
+
+## v0.3 channel indices (PRD_v0.3 section 7 item 3)
+Evidence: `mne.io.read_raw_edf(S001R04.edf)` then `mne.datasets.eegbci.standardize(raw)`, MNE 1.13.2, 64 channels,
+160.0 Hz. Raw names 8, 10, 12 are `C3..`, `Cz..`, `C4..`; standardized names `C3`, `Cz`, `C4`; `raw.ch_names.index`
+gives C3 = 8, Cz = 10, C4 = 12 (0-based). bci/data.py keeps all 64 EEG channels in file order (no reorder), so these
+are the indices into X. The full standardized list is `bci/channels.py` PHYSIONET_CHANNELS. Gate G12 checks the map;
+with BCI_REAL_DATA=1 it also checks the names in the EDF file.
+
+## v0.3 speed baseline (PRD_v0.3 section 7 item 8)
+One v0.2 `csp_lda` fit (base/v0.3 = main code, before any S1 change) on `make_synthetic(n_subjects=1,
+trials_per_subject=850, seed=1)`, shape (850, 64, 480), OMP/OPENBLAS/MKL threads = 2, after one warm-up fit:
+6.518 s, 6.243 s, 6.267 s. Median 6.267 s. G9 limit = 25 % = 1.567 s. Probe: `.cache/probes/p0_baseline.py`
+(git-excluded). cProfile of one fit (5.92 s total): mne CSP `_csp_estimate` 4.83 s, of which rank estimation
+(`_compute_rank_raw_array`, SVD) 3.55 s and the regularized covariance 1.07 s; the band-pass is the rest.
+So the filter cache alone cannot reach 25 %: S1 must also remove the per-fit cost in the CSP step. Any change to the
+CSP numerics must keep G3 and G8, and must be written in docs/claude/DECISIONS.md. v0.3 results are not required
+to equal v0.2 results.
+G9 times the fit as CV sees it: cache warm for a 900-trial array, each timed fit on a new 850-row subset.
+
+## Other Phase 0 decisions
+- PRD_v0.3.md was untracked on main. The rule is "do not edit the root folder, no merge into main", so the Head chef
+  committed a copy on base/v0.3. All v0.3 branches see it there.
+- Dataset-dependent contract: `contracts.DATASETS` + `$BCI_DATASET` read at call time, because registry factories take
+  no argument (v0.2 contract). The v0.2 constants stay for PhysioNet.
+- Stroke window 0.5 to 3.498 s after the motor-imagery onset (1500 samples at 500 Hz, native rate, no resampling),
+  29 EEG channels, common average reference, 1 to 40 Hz: fixed in config.yaml before any stroke data was loaded.
+- G4: a non-ok or missing model is now a FAIL, and checking no model is a FAIL. The v0.2 results/results.json
+  (4 timeouts) therefore fails G4 on every branch until S5 replaces it. That failure is real, not a test bug.
+- Owner-scoped gates: G8, G9, G10 (Claude) and G11, G12 (Codex) run on the owner branch and integration/v0.3, and
+  FAIL there if the module is missing. On main, base/v0.3 and the other branch they skip (that code is not the
+  branch's work). G1 stroke-shape test: classical models on claude/*, advanced models on codex/*, all on integration.
+- G11/G12 were probed with Head-chef reference implementations (`.cache/probes/ref/`, git-excluded): all pass, and
+  2 planted bugs (flipped LS sign, ">" instead of ">=" in p) are caught.

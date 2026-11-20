@@ -1,0 +1,8 @@
+.venv/
+.venv_g7/
+.cache/
+.sync*/
+worktrees/
+__pycache__/
+*.pyc
+.pytest_cache/
