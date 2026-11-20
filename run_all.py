@@ -1,21 +1,26 @@
-﻿"""Integration entry point (PRD section 10). Owner: integration.
+"""Integration entry point v0.3 (PRD_v0.3 section 10). Owner: integration.
 
-    python run_all.py [--synthetic] [--out DIR]
+    python run_all.py [--synthetic] [--dataset physionet|stroke] [--out DIR] [--fresh]
 
-Loads data (PhysioNet with the 3-attempt synthetic fallback, or synthetic with --synthetic), evaluates every
-registered model with bci.evaluate.run_model (one worker process per model, each with its own config time
-budget), writes DIR/results.json, runs bci.report.write_report, runs the feedback simulation, and writes
-DIR/README.md (also ./README.md when DIR is the default results/).
+Loads data (PhysioNet with the 3-attempt synthetic fallback; synthetic with --synthetic; the Liu et al. 2024
+stroke data with --dataset stroke, never a fallback), evaluates every registered model with
+bci.evaluate.run_model (one worker process per model, a checkpoint file per model under DIR/checkpoints, so a
+rerun skips finished stages), writes DIR/results.json after each finished model, then the responder analysis
+and the ERD check (only when bci.analysis / bci.erd_check exist; otherwise recorded as "not measured"),
+bci.report.write_report, the feedback simulation, and DIR/README.md (also ./README.md for the default results/).
+Healthy (PhysioNet) and stroke results are written to separate folders (default results/ and results/stroke/).
 """
 from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import importlib
 import json
 import os
+import shutil
 import subprocess
 import sys
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent
@@ -53,14 +58,15 @@ def _git_commit() -> str:
 
 
 def _worker(args):
-    name, X, y, groups, calibration = args
+    name, X, y, groups, calibration, checkpoint = args
     _set_env()
     from bci import evaluate
 
-    return name, evaluate.run_model(name, X, y, groups, calibration=calibration)
+    return name, evaluate.run_model(name, X, y, groups, calibration=calibration, checkpoint=checkpoint)
 
 
-def load(synthetic: bool):
+def load(synthetic: bool, dataset: str = "physionet"):
+    """(X, y, groups, source). Stroke never falls back to another source."""
     from bci.contracts import load_config
 
     cfg = load_config()
@@ -69,18 +75,116 @@ def load(synthetic: bool):
 
         X, y, groups, _ = make_synthetic()
         return X, y, groups, "synthetic"
+    if dataset == "stroke":
+        from bci import data_stroke
+
+        X, y, groups = data_stroke.load_stroke()
+        return X, y, groups, "stroke"
     from bci import data
 
     return data.load_with_fallback(cfg["subjects"], cfg["runs"])
 
 
-def evaluate_all(X, y, groups, names, calibration_models):
-    jobs = [(n, X, y, groups, n in calibration_models) for n in names]
+def _optional(name):
+    """bci.<name> or None when the file does not exist (Codex modules may be missing)."""
+    if not (REPO / "bci" / f"{name}.py").exists():
+        return None
+    return importlib.import_module(f"bci.{name}")
+
+
+def _write_results(rpath: Path, res: dict):
+    tmp = rpath.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(res, indent=2), encoding="utf-8")
+    os.replace(tmp, rpath)
+
+
+def evaluate_all(X, y, groups, names, calibration_models, ck_dir: Path, on_model=None):
+    jobs = [(n, X, y, groups, n in calibration_models, str(ck_dir / f"{n}.json")) for n in names]
     out = {}
     with ProcessPoolExecutor(max_workers=len(jobs)) as pool:
-        for name, block in pool.map(_worker, jobs):
+        futs = [pool.submit(_worker, j) for j in jobs]
+        for fut in as_completed(futs):
+            name, block = fut.result()
             out[name] = block
             print(f"[run_all] {name}: status {block.get('status')} in {block.get('runtime_s', 0):.1f} s", flush=True)
+            if on_model is not None:
+                on_model(dict(out))
+    return {n: out[n] for n in names if n in out}
+
+
+# ------------------------------------------------------------------ responder analysis and ERD check (Codex modules)
+def _pvalue_worker(args):
+    sid, Xs, ys, n_perm, seed, dataset = args
+    _set_env()
+    os.environ["BCI_DATASET"] = dataset
+    from bci import analysis, evaluate
+
+    factory = evaluate._registry()["csp_lda"]
+    return sid, analysis.subject_pvalue(factory, Xs, ys, n_perm, seed)
+
+
+def heterogeneity(X, y, groups, models: dict, dataset: str, n_workers: int = 4) -> dict:
+    """Responder rule (PRD_v0.3 section 4) and ERD lateralization. Needs bci.analysis / bci.erd_check."""
+    from bci import channels
+    from bci.contracts import SEED, dataset_spec, load_config
+
+    cfg = load_config()
+    out = {}
+    an = _optional("analysis")
+    erd = _optional("erd_check")
+    base = models.get("csp_lda", {})
+    within = (base.get("within_subject") or {}).get("per_subject")
+    if an is None:
+        out["responders"] = {"status": "not measured",
+                             "reason": "bci/analysis.py not on this branch (Codex ticket H1 not delivered)"}
+    elif within is None:
+        out["responders"] = {"status": "not measured", "reason": "csp_lda within_subject block missing"}
+    else:
+        try:
+            n_perm = int(cfg["n_permutations_subject"])
+            jobs = [(str(int(s)), X[groups == s], y[groups == s], n_perm, int(SEED) + int(s), dataset)
+                    for s in np.unique(groups)]
+            pv = {}
+            with ProcessPoolExecutor(max_workers=n_workers) as pool:
+                for sid, r in pool.map(_pvalue_worker, jobs):
+                    pv[sid] = r
+            cls = an.classify_responders({s: r["p"] for s, r in pv.items()}, float(cfg["responder_alpha"]))
+            per_subject = {s: {"obs": float(pv[s]["obs"]), "p": float(pv[s]["p"]), "responder": bool(cls["flags"][s]),
+                               "within_bal_acc_csp_lda": float(within[s]["bal_acc"]) if s in within else None}
+                           for s in sorted(pv, key=int)}
+            mismatch = [s for s, v in per_subject.items() if v["within_bal_acc_csp_lda"] is not None
+                        and abs(v["obs"] - v["within_bal_acc_csp_lda"]) > 1e-9]
+            resp = {"status": "ok", "model": "csp_lda", "n_perm": n_perm, "alpha": float(cfg["responder_alpha"]),
+                    "per_subject": per_subject, "count": int(cls["count"]), "n": int(cls["n"]),
+                    "ci95_proportion": [float(v) for v in cls["ci95"]],
+                    "expected_false_positives": float(cls["expected_false_positives"]),
+                    "obs_matches_within_block": not mismatch, "obs_mismatch_subjects": mismatch}
+            cal = base.get("calibration")
+            if cal and cal.get("per_target"):
+                resp["calibration_gain"] = an.calibration_gain_by_group(cal["per_target"], cls["flags"], cal["k"],
+                                                                        n_boot=10000, seed=SEED)
+            else:
+                resp["calibration_gain"] = {"status": "not measured", "reason": "csp_lda calibration block missing"}
+            out["responders"] = resp
+        except Exception as exc:  # noqa: BLE001 - recorded, never hidden
+            out["responders"] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
+    if erd is None:
+        out["erd"] = {"status": "not measured",
+                      "reason": "bci/erd_check.py not on this branch (Codex ticket H2 not delivered)"}
+    else:
+        try:
+            ch = channels.MOTOR["stroke" if dataset == "stroke" else "physionet"]
+            sf = dataset_spec("stroke" if dataset == "stroke" else "physionet")["sfreq"]
+            ls_mu = erd.lateralization(X, y, groups, sf, ch["C3"], ch["C4"], cfg["erd_band_mu"])
+            ls_beta = erd.lateralization(X, y, groups, sf, ch["C3"], ch["C4"], cfg["erd_band_beta"])
+            acc = {s: float(v["bal_acc"]) for s, v in (within or {}).items()}
+            out["erd"] = {"status": "ok", "channels": {"C3": ch["C3"], "C4": ch["C4"]},
+                          "band_mu": list(cfg["erd_band_mu"]), "band_beta": list(cfg["erd_band_beta"]),
+                          "ls_mu": ls_mu, "ls_beta": ls_beta,
+                          "n_ls_mu_negative": int(sum(v < 0 for v in ls_mu.values())),
+                          "ls_mu_vs_csp_lda_within": erd.lateralization_vs_accuracy(ls_mu, acc) if acc else None}
+        except Exception as exc:  # noqa: BLE001
+            out["erd"] = {"status": "error", "error": f"{type(exc).__name__}: {exc}"}
     return out
 
 
@@ -195,7 +299,7 @@ def _calib_worker(args):
 
 def feedback(X, y, groups, out_dir: Path, source: str):
     """Fit the config feedback model on all subjects but the first and replay one trial of the first."""
-    from bci.contracts import SFREQ, load_config
+    from bci.contracts import dataset_spec, load_config
     from bci.evaluate import _registry
     from bci.feedback_sim import simulate_feedback
 
@@ -205,26 +309,33 @@ def feedback(X, y, groups, out_dir: Path, source: str):
     est = _registry()[cfg["feedback_model"]]().fit(X[train], y[train])
     idx = int(np.flatnonzero(groups == first)[0])
     png = out_dir / "feedback.png"
-    simulate_feedback(est, X[idx], SFREQ, str(png))
+    simulate_feedback(est, X[idx], dataset_spec()["sfreq"], str(png))
     return {"png": png.name, "subject": first, "trial_index": idx, "trial_label": int(y[idx])}
 
 
+def _fmt_ci(ci):
+    return f"[{ci[0]:.4f}, {ci[1]:.4f}]"
+
+
 def write_readme(path: Path, res: dict, g4_fails, g4_warns, fb):
-    syn = res["meta"]["data_source"] == "synthetic"
+    src = res["meta"]["data_source"]
+    syn = src == "synthetic"
     lines = []
     if syn:
         lines += ["# SYNTHETIC - NOT VALID", "", "These outputs come from synthetic data. They are not results.", ""]
+    cohort = ("Acute stroke patients (Liu et al., Scientific Data 2024, CC BY 4.0)." if src == "stroke" else
+              "Healthy subjects (PhysioNet EEG Motor Movement/Imagery, runs 4, 8, 12).")
     lines += [
-        "# Motor imagery BCI v0.2 (CSP, FBCSP, tangent space, EEGNet-lite)",
+        "# Motor imagery BCI v0.3 (CSP, FBCSP, tangent space, EEGNet-lite)",
         "",
-        "Decodes imagined left fist vs right fist from EEG. Healthy subjects (PhysioNet EEG Motor",
-        "Movement/Imagery, runs 4, 8, 12). This is not a stroke cohort and not a medical device. No clinical claim.",
-        "AI agents (Claude Code and Codex) wrote this code.",
+        f"Decodes imagined left vs right hand movement from EEG. This folder: {cohort}",
+        "Healthy-subject and stroke-patient results are kept in separate folders (`results/` and `results/stroke/`).",
+        "Not a medical device. No clinical claim. AI agents (Claude Code and Codex) wrote this code.",
         "",
-        "Run: `python run_all.py` (PhysioNet) or `python run_all.py --synthetic`. Results: `results.json`,",
-        "`results.md`, figures, `feedback.png`. Every reported number comes from `results.json`.",
+        "Run: `python run_all.py` (PhysioNet), `python run_all.py --dataset stroke --out results/stroke`, or",
+        "`python run_all.py --synthetic`. Every reported number comes from `results.json` in the same folder.",
         "",
-        f"Data source: `{res['meta']['data_source']}`. Commit: `{res['meta']['git_commit']}`.",
+        f"Data source: `{src}`. Commit: `{res['meta']['git_commit']}`.",
         "",
         "## Model status",
         "",
@@ -233,21 +344,35 @@ def write_readme(path: Path, res: dict, g4_fails, g4_warns, fb):
         extra = " (partial calibration curve)" if block.get("calibration_partial") else ""
         err = f": {block['error']}" if block.get("error") else ""
         lines.append(f"- `{name}`: {block.get('status', 'ok')}{extra}{err}")
-    lines += ["", "## Finished blocks (from results.json, including models that timed out)", "",
-              "Balanced accuracy. A model with status timeout keeps the blocks it finished before the budget ran out.",
-              "", "| Model | Status | Within mean (std) | Cross mean (std) | Permutation within / cross | Calibration k done |",
+    lines += ["", "## Blocks (from results.json)", "",
+              "Balanced accuracy.", "",
+              "| Model | Status | Within mean (std) | Cross mean (std) | Permutation within / cross | Calibration k done |",
               "|---|---|---|---|---|---|"]
     for name, block in res["models"].items():
         w, c, p, cal = (block.get(k) for k in ("within_subject", "cross_subject", "permutation", "calibration"))
-        lines.append(
-            f"| {name} | {block.get('status', 'ok')} "
-            f"| {f'{w['mean_bal_acc']:.4f} ({w['std_bal_acc']:.4f})' if w else 'not finished'} "
-            f"| {f'{c['mean_bal_acc']:.4f} ({c['std_bal_acc']:.4f})' if c else 'not finished'} "
-            f"| {f'{p['within_mean_bal_acc']:.4f} / {p['cross_mean_bal_acc']:.4f}' if p else 'not finished'} "
-            f"| {cal['k'] if cal else 'none'} |")
+        ws = f"{w['mean_bal_acc']:.4f} ({w['std_bal_acc']:.4f})" if w else "not finished"
+        cs = f"{c['mean_bal_acc']:.4f} ({c['std_bal_acc']:.4f})" if c else "not finished"
+        ps = f"{p['within_mean_bal_acc']:.4f} / {p['cross_mean_bal_acc']:.4f}" if p else "not finished"
+        lines.append(f"| {name} | {block.get('status', 'ok')} | {ws} | {cs} | {ps} | {cal['k'] if cal else 'none'} |")
+    het = res.get("heterogeneity", {})
+    lines += ["", "## Responders and ERD check", ""]
+    r = het.get("responders", {})
+    if r.get("status") == "ok":
+        lines.append(f"Responders (csp_lda, {r['n_perm']} label shuffles, p < {r['alpha']}): {r['count']} of {r['n']}, "
+                     f"95% Clopper-Pearson interval of the proportion {_fmt_ci(r['ci95_proportion'])}; "
+                     f"expected false responders {r['expected_false_positives']:.2f}.")
+    else:
+        lines.append(f"Responders: {r.get('status', 'not measured')} ({r.get('reason') or r.get('error', '')}).")
+    e = het.get("erd", {})
+    if e.get("status") == "ok" and e.get("ls_mu_vs_csp_lda_within"):
+        sp = e["ls_mu_vs_csp_lda_within"]
+        lines.append(f"ERD lateralization (mu): LS < 0 in {e['n_ls_mu_negative']} of {len(e['ls_mu'])} subjects; "
+                     f"Spearman rho vs csp_lda within score {sp['rho']:.4f}, p {sp['p']:.4f}, n {sp['n']}.")
+    else:
+        lines.append(f"ERD check: {e.get('status', 'not measured')} ({e.get('reason') or e.get('error', '')}).")
     lines += ["", "## Gate G4 (plausibility, physionet only)", ""]
-    if res["meta"]["data_source"] != "physionet":
-        lines.append("Not applicable: synthetic data.")
+    if src != "physionet":
+        lines.append(f"Not applicable: data source {src}.")
     else:
         lines += [f"- FAIL: {f}" for f in g4_fails] or ["- No G4 failure."]
         lines += [f"- WARNING: {w}" for w in g4_warns] or ["- No G4 warning."]
@@ -257,55 +382,82 @@ def write_readme(path: Path, res: dict, g4_fails, g4_warns, fb):
               f"`{fb['png']}`: one trial of subject `{fb['subject']}` replayed through the feedback model."
               if fb else "Feedback simulation did not run.", "",
               "## Data and citations", "",
-              "PhysioNet data is open. Schalk et al., 2004 (BCI2000). Goldberger et al., 2000 (PhysioNet).", ""]
+              "PhysioNet data is open. Schalk et al., 2004 (BCI2000). Goldberger et al., 2000 (PhysioNet).",
+              "Stroke data: Liu et al., An EEG motor imagery dataset for brain computer interface in acute stroke "
+              "patients, Scientific Data 11, 131 (2024), CC BY 4.0. Raw data is not redistributed here.",
+              "Code license: MIT (`LICENSE`).", ""]
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _meta(source, groups, y, dataset):
+    from bci.contracts import SEED, SYNTHETIC_LABEL
+
+    meta = {"data_source": source, "dataset": dataset, "seed": SEED,
+            "subjects": [int(s) for s in np.unique(groups)], "git_commit": _git_commit(),
+            "timestamp": _dt.datetime.now().isoformat(timespec="seconds"), "n_trials": int(len(y))}
+    if source == "synthetic":
+        meta["label"] = SYNTHETIC_LABEL
+    return meta
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--synthetic", action="store_true")
-    ap.add_argument("--out", default=str(REPO / "results"))
+    ap.add_argument("--dataset", choices=("physionet", "stroke"), default="physionet")
+    ap.add_argument("--out", default=None, help="default results/ (physionet) or results/stroke/ (stroke)")
+    ap.add_argument("--fresh", action="store_true", help="delete OUT/checkpoints first (new code = new checkpoints)")
+    ap.add_argument("--skip-heterogeneity", action="store_true")
     ap.add_argument("--calibration-only", nargs="+", metavar="MODEL",
-                    help="run only the calibration stage for these models and merge into OUT/results.json")
+                    help="v0.2 mode: run only the calibration stage for these models and merge into OUT/results.json")
     args = ap.parse_args(argv)
-    out_dir = Path(args.out).resolve()
+    dataset = "physionet" if args.synthetic else args.dataset
+    os.environ["BCI_DATASET"] = dataset  # read at call time by the factories; inherited by worker processes
+    default_out = REPO / "results" / ("stroke" if dataset == "stroke" else "")
+    out_dir = Path(args.out).resolve() if args.out else default_out.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     if args.calibration_only:
         return calibration_only(args.calibration_only, out_dir)
 
-    from bci.contracts import SEED, SYNTHETIC_LABEL, g4_check, load_config, validate_results
+    from bci.contracts import SYNTHETIC_LABEL, g4_check, load_config, validate_results
     from bci.evaluate import _registry
 
     cfg = load_config()
-    X, y, groups, source = load(args.synthetic)
+    ck_dir = out_dir / "checkpoints"
+    if args.fresh and ck_dir.exists():
+        shutil.rmtree(ck_dir)
+    ck_dir.mkdir(parents=True, exist_ok=True)
+    X, y, groups, source = load(args.synthetic, dataset)
     print(f"[run_all] data {source}: X {X.shape} {X.dtype}, subjects {len(np.unique(groups))}", flush=True)
     if source == "synthetic":
         print(f"[run_all] {SYNTHETIC_LABEL}", flush=True)
     reg = _registry()
     names = [n for n in MODEL_ORDER if n in reg] + sorted(n for n in reg if n not in MODEL_ORDER)
-    models = evaluate_all(X, y, groups, names, set(cfg["calibration_models"]))
+    rpath = out_dir / "results.json"
+    meta = _meta(source, groups, y, dataset)
 
+    def on_model(done):  # results.json after every finished model (stages live in the checkpoints)
+        part = {"meta": {**meta, "partial": True}, "models": {n: {k: v for k, v in b.items() if k != "runtime_s"}
+                                                               for n, b in done.items()},
+                "stats": {"comparisons": []}, "runtime_s": {n: float(b.get("runtime_s", 0.0)) for n, b in done.items()}}
+        _write_results(rpath, part)
+
+    models = evaluate_all(X, y, groups, names, set(cfg["calibration_models"]), ck_dir, on_model)
     for b in models.values():
         if "calibration" in b:
             add_bootstrap(b["calibration"])
     runtime = {n: float(b.pop("runtime_s", 0.0)) for n, b in models.items()}
-    res = {
-        "meta": {"data_source": source, "seed": SEED, "subjects": [int(s) for s in np.unique(groups)],
-                 "git_commit": _git_commit(), "timestamp": _dt.datetime.now().isoformat(timespec="seconds"),
-                 "n_trials": int(len(y))},
-        "models": models,
-        "runtime_s": runtime,
-    }
-    if source == "synthetic":
-        res["meta"]["label"] = SYNTHETIC_LABEL
+    res = {"meta": meta, "models": models, "runtime_s": runtime}
     from bci import report
 
     res["stats"] = report.compute_stats(res)
     validate_results(res)
-    rpath = out_dir / "results.json"
-    rpath.write_text(json.dumps(res, indent=2), encoding="utf-8")
+    _write_results(rpath, res)
+    if not args.skip_heterogeneity:
+        res["heterogeneity"] = heterogeneity(X, y, groups, models, dataset)
+        _write_results(rpath, res)
     md = report.write_report(str(rpath), str(out_dir))
     print(f"[run_all] report {md}", flush=True)
+    res = json.loads(rpath.read_text(encoding="utf-8"))
 
     fb = None
     try:
