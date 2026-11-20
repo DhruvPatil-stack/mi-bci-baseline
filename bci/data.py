@@ -1,7 +1,8 @@
 """PhysioNet EEG Motor Movement/Imagery loader (ticket C1, PRD section 5, contracts.py DATA CONTRACT).
 
 Output contract
-    X       (n_trials, 64, 480) float32, microvolt (uV)
+    X       (n_trials, n_channels, n_samples) float32, microvolt (uV); PhysioNet spec 64 x 480 at 160 Hz
+            (read from contracts.dataset_spec("physionet"))
     y       (n_trials,) int64, 0 = left fist (T1), 1 = right fist (T2); rest (T0) is dropped
     groups  (n_trials,) int64 subject id
 
@@ -17,11 +18,13 @@ from pathlib import Path
 import numpy as np
 
 from . import synthetic
-from .contracts import N_CHANNELS, N_SAMPLES, SFREQ, SYNTHETIC_LABEL, load_config
+from .contracts import SYNTHETIC_LABEL, dataset_spec, load_config
 
 REPO = Path(__file__).resolve().parents[1]
 CACHE = REPO / ".cache"
 CFG = load_config()
+_PN = dataset_spec("physionet")  # this loader is PhysioNet only: shape and rate come from the dataset contract
+N_CHANNELS, N_SAMPLES, SFREQ = _PN["n_channels"], _PN["n_samples"], _PN["sfreq"]
 
 # MNE reads and writes its config file under the home folder. Point it inside the repo BEFORE mne is imported.
 os.environ.setdefault("_MNE_FAKE_HOME_DIR", str(CACHE / "mne_home"))

@@ -9,11 +9,23 @@ Rules kept here:
   training set and inside each test set (after splitting), with seeded generators.
 - Every estimator is fitted and then used for prediction before the next one is fitted.
 - All numbers returned are plain Python floats / ints (JSON-serialisable). No unseeded randomness.
+
+v0.3 (ticket S2; TIME LIMIT CONTRACT and EVALUATE CHECKPOINT CONTRACT in bci/contracts.py):
+- The time budget is a SAFETY STOP only. A deadline exists only when contracts.enforce_time_budget(cfg) is True;
+  otherwise no clock is read that can decide a branch (runtime_s is still measured and reported).
+- run_model(..., checkpoint=path) writes the finished stages to a JSON file after every stage (temp file in the
+  same folder + os.replace). A rerun with the same fingerprint (model name, X, y, groups, config) loads the
+  finished stages instead of recomputing them. Timing and bookkeeping live only in the file, never in results.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
+import json
+import os
+import tempfile
 import time
+from pathlib import Path
 
 import numpy as np
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, cohen_kappa_score
@@ -181,18 +193,30 @@ def _calibration_block(progress, n):
     return block
 
 
-def run_calibration(name, X, y, groups, budget_min):
-    """Calibration stage only, with its own time budget in minutes (checked before every fit).
+def run_calibration(name, X, y, groups, budget_min, checkpoint=None):
+    """Calibration stage only, with its own time budget in minutes (a safety stop, checked before every fit
+    only when contracts.enforce_time_budget(cfg) is True).
 
     Returns {"calibration": block (absent if no k finished), "status": ok|timeout|error,
     "calibration_partial": bool, "runtime_s": float, ["error": str]}.
+    checkpoint (optional path): same file and fingerprint as run_model; a finished calibration stage found there
+    is loaded instead of recomputed, and a newly finished one is added to the file.
     """
-    t0 = time.monotonic()
-    deadline = t0 + float(budget_min) * 60.0
+    t0 = time.perf_counter()  # measured and reported only
     progress = {}
     out = {"status": "ok", "calibration_partial": False}
     try:
-        out["calibration"] = _calibration(name, X, y, groups, deadline=deadline, progress=progress)
+        cfg = contracts.load_config()
+        deadline = _deadline(cfg, budget_min)
+        ck = _Checkpoint(checkpoint, name, X, y, groups, cfg)
+        if "calibration" in ck.stages:
+            out["calibration"] = ck.stages["calibration"]
+        else:
+            ts = time.perf_counter()
+            out["calibration"] = _calibration(name, X, y, groups, deadline=deadline, cfg=cfg, progress=progress)
+            ck.save("calibration", out["calibration"], time.perf_counter() - ts)
+        if ck.write_error:
+            out["checkpoint_error"] = ck.write_error
     except _Timeout:
         out["status"] = "timeout"
         out["error"] = f"calibration budget of {budget_min} min exceeded"
@@ -203,8 +227,133 @@ def run_calibration(name, X, y, groups, budget_min):
     except Exception as exc:  # noqa: BLE001 - recorded, never hidden
         out["status"] = "error"
         out["error"] = f"{type(exc).__name__}: {exc}"
-    out["runtime_s"] = float(time.monotonic() - t0)
+    out["runtime_s"] = float(time.perf_counter() - t0)
     return out
+
+
+# ------------------------------------------------------------------ time limit (safety stop only)
+def _deadline(cfg, budget_min):
+    """Monotonic deadline, or None when the time limit is off (then no clock read can change a result)."""
+    if not contracts.enforce_time_budget(cfg):
+        return None
+    return time.monotonic() + float(budget_min) * 60.0
+
+
+# ------------------------------------------------------------------ checkpoint (EVALUATE CHECKPOINT CONTRACT)
+CHECKPOINT_VERSION = 1
+STAGES = ("within_subject", "cross_subject", "permutation", "calibration")
+_VALIDATORS = {"within_subject": contracts.validate_within, "cross_subject": contracts.validate_cross,
+               "permutation": contracts.validate_permutation, "calibration": contracts.validate_calibration}
+
+
+def _hash_array(h, label, a):
+    a = np.ascontiguousarray(np.asarray(a))  # local copy only; the caller's X is never replaced
+    h.update(f"{label}|{a.dtype.str}|{a.shape}|".encode("utf-8"))
+    h.update(memoryview(a).cast("B"))
+
+
+def fingerprint(name, X, y, groups, cfg) -> str:
+    """sha256 hex of (checkpoint version, model name, X dtype/shape/bytes, y, groups as int64, config JSON).
+
+    The calibration flag, the estimator class and environment variables are NOT part of it (contract).
+    """
+    h = hashlib.sha256()
+    h.update(f"bci.evaluate.checkpoint.v{CHECKPOINT_VERSION}|model={name}|".encode("utf-8"))
+    _hash_array(h, "X", X)
+    _hash_array(h, "y", np.asarray(y).astype(np.int64))
+    _hash_array(h, "groups", np.asarray(groups).astype(np.int64))
+    h.update(json.dumps(cfg, sort_keys=True, default=str).encode("utf-8"))
+    return h.hexdigest()
+
+
+def _load_checkpoint(path, fp) -> dict:
+    """Finished stages {stage: block} of the checkpoint at path if its fingerprint is fp, else {}.
+
+    A missing, unreadable or foreign file is ignored (it is overwritten at the next finished stage). A stage
+    block that fails its contract validator is dropped and recomputed.
+    """
+    if path is None or not Path(path).is_file():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(doc, dict) or doc.get("fingerprint") != fp or doc.get("version") != CHECKPOINT_VERSION:
+        return {}
+    stages = doc.get("stages")
+    if not isinstance(stages, dict):
+        return {}
+    done = {}
+    for key in STAGES:
+        if key in stages:
+            try:
+                _VALIDATORS[key](stages[key])
+            except (ValueError, KeyError, TypeError):
+                continue
+            done[key] = stages[key]
+    return done
+
+
+def _write_checkpoint(path, fp, name, stages, stage_runtime_s) -> None:
+    """Atomic write: JSON to a temp file in the target folder, then os.replace (the old file stays intact)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"version": CHECKPOINT_VERSION, "fingerprint": fp, "model": name,
+           "stages": {k: stages[k] for k in STAGES if k in stages},
+           "stage_runtime_s": {k: float(v) for k, v in stage_runtime_s.items()}}
+    text = json.dumps(doc, indent=1, allow_nan=False)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        for attempt in range(5):  # Windows: a reader holding the target open makes os.replace fail briefly
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.1)  # retry pause only; never decides a result
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _read_stage_runtimes(path, fp) -> dict:
+    """stage_runtime_s of a matching checkpoint (bookkeeping only, carried over so earlier times are kept)."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            doc = json.load(fh)
+        if doc.get("fingerprint") == fp and isinstance(doc.get("stage_runtime_s"), dict):
+            return {k: float(v) for k, v in doc["stage_runtime_s"].items() if k in STAGES}
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return {}
+
+
+class _Checkpoint:
+    """Finished stages of one model run, mirrored to a JSON file (or kept in memory only when path is None)."""
+
+    def __init__(self, path, name, X, y, groups, cfg):
+        self.path = None if path is None else Path(path)
+        self.name = name
+        self.fp = fingerprint(name, X, y, groups, cfg) if self.path is not None else None
+        self.stages = _load_checkpoint(self.path, self.fp) if self.path is not None else {}
+        self.runtimes = _read_stage_runtimes(self.path, self.fp) if self.stages else {}
+        self.write_error = None
+
+    def save(self, key, block, seconds):
+        self.stages[key] = block
+        self.runtimes[key] = seconds
+        if self.path is None:
+            return
+        try:
+            _write_checkpoint(self.path, self.fp, self.name, self.stages, self.runtimes)
+        except OSError as exc:  # the result is still valid; only the resume ability is lost, and that is reported
+            self.write_error = f"{type(exc).__name__}: {exc}"
 
 
 # ------------------------------------------------------------------ public API (contract)
@@ -228,26 +377,45 @@ def calibration_curve(name, X, y, groups):
     return _calibration(name, X, y, groups)
 
 
-def run_model(name, X, y, groups, calibration: bool):
+def run_model(name, X, y, groups, calibration: bool, checkpoint=None):
     """Model block {within_subject, cross_subject, permutation, [calibration], status, runtime_s}.
 
-    The whole model gets config time_budget_min, checked before every fit. On overrun the finished blocks are
-    kept and status is "timeout". If the budget runs out during calibration, the k values that finished are kept
-    as a valid calibration block (lists cut to the same length) and "calibration_partial" is True.
-    Any exception gives status "error" with an "error" string.
+    Time limit (TIME LIMIT CONTRACT): config time_budget_min is a safety stop for the whole model, checked
+    before every fit ONLY when contracts.enforce_time_budget(cfg) is True. When it is False no clock value
+    decides anything; runtime_s is still measured and reported. On overrun the finished blocks are kept and
+    status is "timeout". If the budget runs out during calibration, the k values that finished are kept as a
+    valid calibration block (lists cut to the same length) and "calibration_partial" is True.
+
+    Checkpoint (EVALUATE CHECKPOINT CONTRACT): checkpoint = path of a JSON file, or None (no file). After each
+    finished stage the finished stages are written atomically to that file. On start, the stages of a file with
+    the same fingerprint (model name, X, y, groups, config; not the calibration flag) are loaded and not
+    recomputed. A file with another fingerprint is ignored and overwritten at the next finished stage. Only the
+    stages asked for are returned (a calibration stored by an earlier run is kept in the file but not returned
+    when calibration is False). A partial calibration (timeout) is never stored as finished.
+
+    Any exception gives status "error" with an "error" string. A failed checkpoint write does not change the
+    results; it is reported as "checkpoint_error".
     """
-    cfg = contracts.load_config()
-    t0 = time.monotonic()
-    deadline = t0 + float(cfg["time_budget_min"]) * 60.0
+    t0 = time.perf_counter()  # measured and reported only, never compared
     out = {}
     progress = {}
     steps = [("within_subject", _within), ("cross_subject", _cross), ("permutation", _permutation)]
     if calibration:
         steps.append(("calibration", lambda *a, **kw: _calibration(*a, progress=progress, **kw)))
     status = "ok"
+    key = None
+    ck = None
     try:
+        cfg = contracts.load_config()
+        deadline = _deadline(cfg, cfg["time_budget_min"])
+        ck = _Checkpoint(checkpoint, name, X, y, groups, cfg)
         for key, fn in steps:
+            if key in ck.stages:
+                out[key] = ck.stages[key]
+                continue
+            ts = time.perf_counter()
             out[key] = fn(name, X, y, groups, deadline=deadline, cfg=cfg)
+            ck.save(key, out[key], time.perf_counter() - ts)
     except _Timeout:
         status = "timeout"
         out["error"] = f"time budget of {cfg['time_budget_min']} min exceeded during {key}"
@@ -258,6 +426,8 @@ def run_model(name, X, y, groups, calibration: bool):
     except Exception as exc:  # noqa: BLE001 - recorded in the results, never hidden
         status = "error"
         out["error"] = f"{type(exc).__name__}: {exc}"
+    if ck is not None and ck.write_error:
+        out["checkpoint_error"] = ck.write_error
     out["status"] = status
-    out["runtime_s"] = float(time.monotonic() - t0)
+    out["runtime_s"] = float(time.perf_counter() - t0)
     return out
