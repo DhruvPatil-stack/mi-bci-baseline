@@ -17,7 +17,7 @@ from sklearn.pipeline import FeatureUnion, Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from bci import cache
-from bci.contracts import SEED, SFREQ, dataset_spec, load_config
+from bci.contracts import SEED, dataset_spec, load_config
 
 mne.set_log_level("ERROR")
 
@@ -25,7 +25,7 @@ mne.set_log_level("ERROR")
 class BandPass(BaseEstimator, TransformerMixin):
     """Stateless zero-phase Butterworth band-pass over the last axis. Casts to float64."""
 
-    def __init__(self, low, high, fs=SFREQ, order=4):
+    def __init__(self, low, high, fs=None, order=4):
         self.low = low
         self.high = high
         self.fs = fs
@@ -36,7 +36,8 @@ class BandPass(BaseEstimator, TransformerMixin):
 
     def transform(self, X):
         # Same sosfiltfilt math with the cache on or off ($BCI_FILTER_CACHE read at call time, gate G8).
-        return cache.filtered(X, self.low, self.high, self.fs, self.order)
+        fs = dataset_spec()["sfreq"] if self.fs is None else self.fs  # fs=None: active dataset's rate
+        return cache.filtered(X, self.low, self.high, fs, self.order)
 
 
 def _csp(n_components, reg, rank):
