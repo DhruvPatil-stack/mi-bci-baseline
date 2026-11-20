@@ -400,6 +400,64 @@ def _meta(source, groups, y, dataset):
     return meta
 
 
+def _report_blocks(res: dict) -> None:
+    """Copy heterogeneity values into the top-level keys bci.report reads (responder_analysis, erd). No new numbers."""
+    het = res.get("heterogeneity", {})
+    r = het.get("responders", {})
+    if r.get("status") == "ok":
+        res["responder_analysis"] = {
+            "per_subject": {s: {"score": v["obs"], "p_value": v["p"], "responder": v["responder"]}
+                            for s, v in r["per_subject"].items()},
+            "summary": {"count": r["count"], "n": r["n"], "ci95": r["ci95_proportion"],
+                        "expected_false_positives": r["expected_false_positives"], "alpha": r["alpha"],
+                        "n_perm": r["n_perm"]},
+            "calibration_gain": r.get("calibration_gain") if isinstance(r.get("calibration_gain"), dict)
+            and r["calibration_gain"].get("k") else None}
+    else:
+        res.pop("responder_analysis", None)
+    e = het.get("erd", {})
+    if e.get("status") == "ok":
+        res["erd"] = {"lateralization": e["ls_mu"], "association": e.get("ls_mu_vs_csp_lda_within"),
+                      "band": e["band_mu"]}
+    else:
+        res.pop("erd", None)
+
+
+def analysis_only(out_dir: Path, dataset: str):
+    """Responder analysis + ERD check on the SAME data as the stored model blocks, then the report and README.
+
+    The data is reloaded and must match the stored meta (subjects and n_trials); no model block is refitted or
+    changed. The previous heterogeneity block (if any) is replaced.
+    """
+    from bci import report
+    from bci.contracts import g4_check, validate_results
+
+    rpath = out_dir / "results.json"
+    res = json.loads(rpath.read_text(encoding="utf-8"))
+    X, y, groups, source = load(False, dataset)
+    if source != res["meta"]["data_source"]:
+        raise SystemExit(f"data source {source} != stored {res['meta']['data_source']}: refusing to mix data")
+    if [int(s) for s in np.unique(groups)] != res["meta"]["subjects"] or int(len(y)) != res["meta"]["n_trials"]:
+        raise SystemExit("reloaded data does not match the stored subjects / n_trials")
+    res["heterogeneity"] = heterogeneity(X, y, groups, res["models"], dataset)
+    _report_blocks(res)
+    res["meta"]["analysis_run"] = {"git_commit": _git_commit(),
+                                   "timestamp": _dt.datetime.now().isoformat(timespec="seconds")}
+    validate_results(res)
+    _write_results(rpath, res)
+    md = report.write_report(str(rpath), str(out_dir))
+    print(f"[run_all] report {md}", flush=True)
+    res = json.loads(rpath.read_text(encoding="utf-8"))
+    fails, warns = g4_check(res)
+    fb = {"png": "feedback.png", "subject": int(res["meta"]["subjects"][0])} if (out_dir / "feedback.png").exists() else None
+    write_readme(out_dir / "README.md", res, fails, warns, fb)
+    if out_dir == (REPO / "results").resolve():
+        write_readme(REPO / "README.md", res, fails, warns, fb)
+    print(f"[run_all] heterogeneity: responders {res['heterogeneity']['responders'].get('status')}, "
+          f"erd {res['heterogeneity']['erd'].get('status')}", flush=True)
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--synthetic", action="store_true")
@@ -407,6 +465,8 @@ def main(argv=None):
     ap.add_argument("--out", default=None, help="default results/ (physionet) or results/stroke/ (stroke)")
     ap.add_argument("--fresh", action="store_true", help="delete OUT/checkpoints first (new code = new checkpoints)")
     ap.add_argument("--skip-heterogeneity", action="store_true")
+    ap.add_argument("--analysis-only", action="store_true",
+                    help="keep OUT/results.json model blocks; rerun only responders/ERD, the report and README")
     ap.add_argument("--calibration-only", nargs="+", metavar="MODEL",
                     help="v0.2 mode: run only the calibration stage for these models and merge into OUT/results.json")
     args = ap.parse_args(argv)
@@ -417,6 +477,8 @@ def main(argv=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     if args.calibration_only:
         return calibration_only(args.calibration_only, out_dir)
+    if args.analysis_only:
+        return analysis_only(out_dir, dataset)
 
     from bci.contracts import SYNTHETIC_LABEL, g4_check, load_config, validate_results
     from bci.evaluate import _registry
@@ -454,6 +516,7 @@ def main(argv=None):
     _write_results(rpath, res)
     if not args.skip_heterogeneity:
         res["heterogeneity"] = heterogeneity(X, y, groups, models, dataset)
+        _report_blocks(res)
         _write_results(rpath, res)
     md = report.write_report(str(rpath), str(out_dir))
     print(f"[run_all] report {md}", flush=True)
