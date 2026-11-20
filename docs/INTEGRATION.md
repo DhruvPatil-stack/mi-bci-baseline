@@ -2,10 +2,11 @@
 
 The v0.2 integration notes are in this file on main and tag v0.2 (`git show v0.2:docs/INTEGRATION.md`).
 Built 2026-11-20 by the Claude lead. Base: base/v0.3 (18b78b2). Merged: claude/speed-stroke (06eb7d3) as 7276571.
-codex/heterogeneity was NOT merged: it holds no commit and no uncommitted file beyond base/v0.3 (checked with
-`git -C worktrees/v3-codex status --short` and `git log`). Codex wrote no marker after P0_DONE
-(.sync3/STATE_codex.md last changed 03:52: "FIRST complete ... wait for .sync3\P0_DONE"; Codex stopped after its
-first step and never acted on P0_DONE, written 04:19). Tickets H1-H4 were not delivered.
+codex/heterogeneity: Codex was idle from 03:52 to about 09:50 (cause not measured), then wrote H1-H4 between
+09:52 and 10:03 (CODEX_DONE 10:02, inside the 4 h limit). Its sandbox could not commit (index.lock), so the lead
+committed the files as bf21a5b ("codex work") and merged it as 860004d. models_advanced.py did not change, so the
+ts_lr and eegnet_lite blocks of the S5 run stand. The plan review (.sync3/PLAN_REVIEW.md, 15 hardening items,
+"not evidence of an implementation defect") came after the lock and build: accepted as risk, no locked check edited.
 
 ## run_all.py v0.3 (1e7df94)
 Per-model checkpoint files under OUT/checkpoints (`--fresh` deletes them), results.json after every finished model,
@@ -44,12 +45,12 @@ Synthetic smoke run (BCI_ENFORCE_TIME_BUDGET=0): exit 0, 4 models ok, 875 s wall
 | G8 cache | PASS | 7 passed |
 | G9 speed | PASS alone, FAIL under load | PASS in the gate run (08:00, nothing else running). FAIL in the inspector's full-suite run, which ran at the same time as the G6 run_all workers (`test_csp_lda_fit_speed` failed). The S1 builder measured median 1.249 s under partial load and 1.573 s / 1.713 s at 79-94 % CPU. The margin under the 1.567 s limit is small; judge G9 on a quiet machine |
 | G10 wall clock | PASS | 3 passed |
-| G11 responders | FAIL | 6 errors: `Failed: bci/analysis.py is required on integration/v0.3 but does not exist` |
-| G12 ERD | FAIL | 5 errors: `Failed: bci/erd_check.py is required on integration/v0.3 but does not exist`; the channel-map tests pass (also on the real EDF names) |
+| G11 responders | PASS after the Codex merge | before: 6 errors `Failed: bci/analysis.py is required on integration/v0.3 but does not exist`; after 860004d: G0+G5+G11+G12+tests/codex 34 passed |
+| G12 ERD | PASS after the Codex merge | before: 5 errors (`bci/erd_check.py ... does not exist`); after: pass, incl. the channel map on the real EDF names |
 | G13 stroke loader | PASS | 2 passed with BCI_EXPECT_STROKE=1 |
 | G14 hygiene | PASS | 3 passed |
 
-The G1, G11 and G12 failures are in Codex-owned files. Integration fixes only integration files, so they stay failed.
+The G1 failure is in a Codex-owned file (models_advanced.py). Integration fixes only integration files, so it stays failed.
 
 ## Stroke interval (added after the gates)
 results/stroke/within_ci.json: percentile bootstrap 95% CI of the mean within-subject bal_acc over the 47 patients,
@@ -57,6 +58,13 @@ results/stroke/within_ci.json: percentile bootstrap 95% CI of the mean within-su
 .cache/probes/stroke_ci.py, git-excluded). csp_lda 0.5064 [0.4707, 0.5436]; ts_lr 0.5622 [0.5080, 0.6181].
 
 ## Not done
-- Codex inspection of the Claude files: Codex inactive; see .sync3 / docs/MORNING_REPORT_v0.3.md.
 - Stroke rerun: needs a human go-ahead (host stopped it for low memory).
 - G7 fresh venv: not run.
+
+## Responder analysis and ERD check on PhysioNet (after the Codex merge)
+`run_all.py --analysis-only` (15c3449), 10:53 to 11:25: reloads the same data (subjects and n_trials checked against
+the stored meta), keeps every model block, adds `heterogeneity` (+ the report keys responder_analysis / erd), rerenders
+results.md. Responders 3 of 20, CI [0.0321, 0.3789]; obs equals the stored csp_lda within score for all 20 subjects.
+LS < 0 in 13 of 20; Spearman rho -0.6351, p 0.0026. Afterwards G0 + G4 + G5: 16 passed.
+Inspections: docs/INSPECTION_claude_v0.3.md (Claude on the Codex diff; the earlier version, written when the diff was
+empty, is in commit 29539e7) and docs/INSPECTION_codex_v0.3.md (Codex on the Claude diff).

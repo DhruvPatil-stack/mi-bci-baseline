@@ -29,8 +29,8 @@ Balanced accuracy.
 
 ## Responders and ERD check
 
-Responders: not measured (bci/analysis.py not on this branch (Codex ticket H1 not delivered)).
-ERD check: not measured (bci/erd_check.py not on this branch (Codex ticket H2 not delivered)).
+Responders (csp_lda, 200 label shuffles, p < 0.05): 3 of 20, 95% Clopper-Pearson interval of the proportion [0.0321, 0.3789]; expected false responders 1.00.
+ERD lateralization (mu): LS < 0 in 13 of 20 subjects; Spearman rho vs csp_lda within score -0.6351, p 0.0026, n 20.
 
 ## Gate G4 (plausibility, physionet only)
 
